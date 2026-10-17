@@ -1,70 +1,85 @@
-# 信锚 Agent-Anchor
+# 智契化身 · 信锚 Agent-Anchor
 
-## 下载与本地配置
+本仓库包含用户端、信任提供方（TP）审核端、智能体提供方（AP）管理端，以及 Octopus / OpenClaw 智能体相关代码。下面的步骤以 **Windows 本机演示** 为准；三个网页由 Python 服务直接提供，不需要单独启动前端开发服务器。
 
-可以直接下载 GitHub 仓库的 ZIP，或运行 `git clone https://github.com/gougouyudawang/ZHIQIHUASHEN.git`。仓库中的 `anp-proxy/` 已包含项目使用的代理源码，无需另行拉取子模块。
+## 1. 下载并安装基础依赖
 
-本机 API Key、身份私钥、申请记录、运行日志和虚拟环境不会上传。配置 OpenClaw 时，可复制 `agent_provider/openclaw/.env.example` 为同目录下的 `.env`，再填入自己的密钥；Octopus 的配置参考 `agent_provider/octopus/.env_template`。Windows 下可使用根目录的 `start_user_8110.bat`、`start_tp_8111.bat`、`start_ap_8112.bat` 分别启动三个服务。
+安装 Python 3.12。然后在 PowerShell 中运行：
 
-本项目是一个完整的个人智能体系统实现，集成了去中心化身份 (DID)、可验证凭证 (PHC/PA) 以及安全的智能体通信协议 (ANP)。
-
-## 项目概览
-
-系统由以下几个核心组件构成：
-- **Trust Provider (TP)**: 信任提供方。负责验证真人身份并签发 Personhood Credentials (PHC)。
-- **Agent Provider (AP)**: 智能体提供方。负责签发 Personal Agent (PA) 凭证，并管理智能体的代码模板。
-- **User Service**: 用户服务。管理用户身份，代理用户申请凭证，并负责在本地构建和部署智能体。
-- **Gateway**: 网关服务。提供 WebSocket/HTTP 接口，支持智能体之间的安全通信 (ANP)。
-
-## 目录结构
-
-- `agent_provider/`: AP 服务的源代码以及 Octopus 智能体模板代码。
-- `trust_provider/`: TP 服务的源代码（身份验证逻辑）。
-- `user/`: User 服务的核心逻辑（凭证管理、加密运算）。
-- `app/`: FastAPI 应用入口和 Web 前端界面。
-- `gateway/`: ANP 网关的实现。
-- `local_store/`: 本地存储目录，用于存放生成的智能体、密钥和数据库文件。
-
-## 运行指南
-
-### 前置要求
-
-- Python 3.10 或更高版本
-- `uv` 包管理器 (推荐) 或 pip
-
-
-
-### 启动服务
-
-**1. 启动网关 (Gateway)**
-```bash
-cd anp-proxy
-uv run anp-proxy --mode gateway --gateway-port 8080 --wss-port 8765
-```
-**2. 启动用户端**
-```bash
-python -m uvicorn app.user_app:app --host your_ip --port 8000 --reload
+```powershell
+git clone https://github.com/gougouyudawang/ZHIQIHUASHEN.git
+cd ZHIQIHUASHEN
+py -3.12 -m venv .venv312
+.\.venv312\Scripts\python.exe -m pip install -r requirements-local.txt
 ```
 
-**3. 启动信任提供方 (TP)**
-```bash
-python -m uvicorn app.tp_app:app --host your_ip --port 8001 --reload
+也可以从 GitHub 下载 ZIP 并解压，之后在解压后的**项目根目录**运行后三条命令。根目录是包含 `app/` 和三个 `start_*.bat` 的目录。安装依赖需要联网；仓库不包含虚拟环境。只有启动 OpenClaw 执行分支时才需要额外准备 Node.js、npm 和 Git；运行 Octopus 实例会在首次启动时为实例安装其 Python 依赖。
+
+## 2. 启动本地网页
+
+分别打开三个 PowerShell 窗口，都先进入项目根目录，再各运行一条命令：
+
+```powershell
+.\start_tp_8111.bat
 ```
 
-**4. 启动智能体提供方 (AP)**
-```bash
-python -m uvicorn app.ap_app:app --host your_ip --port 8002 --reload
+```powershell
+.\start_ap_8112.bat
 ```
 
-## 用户使用指南：创建您的第一个智能体
-1.  **配置数据库**: 在 `trust_provider/issue_phc.py` 中配置数据库连接信息。在配置的mysql数据库中上传user信息。（pic_string可以通过先上传一张照片，通过F12开发者工具抓包获取）
-2.  **打开用户控制台** (`http://localhost:8000/user`)。
-3.  **申请 PHC**: 上传一张照片（和配置好的mysql数据库中的user信息匹配），点击 "请求 PHC"。这一步模拟了身份验证过程。
-4.  **加载配置**: 点击 "加载配置"，从 AP 获取可选的智能体模块列表。
-5.  **选择模块**: 勾选您希望智能体具备的能力（例如 "文本处理"、"联网搜索"）。
-6.  **提交并创建**: 提交您的选择。系统会自动下载代码、裁剪配置并生成启动脚本。
-7.  **启动智能体**:
-    - 进入目录 `d:\program\personal-agent\local_store\agents\<您的phc_id>\`。
-    - 双击运行 `launch_octopus_personal.bat`。
-    - 您的个人智能体将在 9527 端口启动。请访问 `http://localhost:9527` 与它对话。
-    （如果要进行多实例测试，启动其他智能体实例时，需要手动在 `launch_octopus_personal.bat` 中修改端口号。）
+```powershell
+.\start_user_8110.bat
+```
+
+启动顺序建议 TP → AP → 用户端。脚本使用 `.venv312\Scripts\python.exe`，并将三个服务只绑定到 `127.0.0.1`。保持三个终端窗口开启；关闭窗口即停止对应服务。**脚本启动前会强制结束占用其目标端口的进程**，如果端口上有其他程序，请先确认再运行。
+
+| 页面 | 本机地址 | 演示账号 |
+| --- | --- | --- |
+| 用户端 | <http://127.0.0.1:8110/user> | `user` / `pa@2026` |
+| 用户端简版工作台 | <http://127.0.0.1:8110/user/static/experience/index.html> | 同上 |
+| TP 申领与删除审核端 | <http://127.0.0.1:8111/tp> | `tpadmin` / `pa@2026` |
+| AP 管理端 | <http://127.0.0.1:8112/ap> | `apadmin` / `pa@2026` |
+
+未登录时会跳转到各自的 `/login` 页面。用户端的“连接与设置”应指向 `http://127.0.0.1:8111` 和 `http://127.0.0.1:8112`。`/user` 使用在线 CDN 加载 Vue 和 Element Plus，浏览器需要能访问这些资源；简版工作台的页面脚本和样式位于仓库内。
+
+如果不使用 `.bat`，可在已进入项目根目录且已设置 `USE_FIXED_KEYS=1` 的三个终端中分别运行：
+
+```powershell
+.\.venv312\Scripts\python.exe -m uvicorn app.tp_app:app --host 127.0.0.1 --port 8111
+.\.venv312\Scripts\python.exe -m uvicorn app.ap_app:app --host 127.0.0.1 --port 8112
+.\.venv312\Scripts\python.exe -m uvicorn app.experience_app:app --host 127.0.0.1 --port 8110
+```
+
+上面每条命令必须在**不同终端**运行，不能在一个终端里依次等待执行。三个启动脚本已经设置了 `USE_FIXED_KEYS=1`，手动启动时请在每个终端先执行 `$env:USE_FIXED_KEYS='1'`，使服务间使用相同的演示密钥。
+
+## 3. 完成申领流程前，还需配置什么
+
+**登录和浏览页面**不需要先申请身份，也不需要 ANP 网关；但**真实提交身份申领**需要可连接的 MySQL，以及表中与申请人对应的照片记录。TP 当前读取环境变量 `MYSQL_HOST`、`MYSQL_PORT`、`MYSQL_USER`、`MYSQL_PASSWORD`、`MYSQL_DB`、`MYSQL_TABLE`；代码默认分别是 `127.0.0.1`、`3306`、`root`、`1234`、`avatar`、`bi`。请在启动 TP 的 PowerShell 窗口中先设置你自己的值，例如：
+
+```powershell
+$env:MYSQL_HOST='127.0.0.1'
+$env:MYSQL_PORT='3306'
+$env:MYSQL_USER='你的数据库用户'
+$env:MYSQL_PASSWORD='你的数据库密码'
+$env:MYSQL_DB='avatar'
+$env:MYSQL_TABLE='bi'
+.\start_tp_8111.bat
+```
+
+TP 会按申请中的身份编号查询 `bi.user_id`，并将 `bi.pic_string` 与本次上传照片的数据比较。库中没有该用户、照片数据不一致或数据库不可用时，页面虽能打开，身份核验仍无法通过。演示账号只用于**登录网页**，不代表数据库已准备好，也不保证申领自动通过。通过用户端提交后，在 TP 页面审核申请，再返回用户端查看审批结果。
+
+创建并运行智能体还需要自己的模型服务配置。可将 `agent_provider/octopus/.env_template` 复制为同目录下的 `.env`，填写 `OPENAI_API_KEY`、`OPENAI_BASE_URL`、`OPENAI_MODEL`；OpenClaw 可将 `agent_provider/openclaw/.env.example` 复制为 `.env` 并填写对应参数。也可以在实例生成后，通过页面的模型配置入口为该实例单独设置。**仓库不会提供或上传模型密钥**；仅启动三个网页不等于模型对话已经可用。
+
+## 4. 常见问题与运行边界
+
+- `.venv312\Scripts\python.exe` 不存在：先完成第 1 步创建虚拟环境，或检查 Python 3.12 是否安装。
+- 端口 8110、8111、8112 被占用：启动脚本会结束占用对应端口的进程；如不希望这样，请先关闭冲突程序并使用手动启动命令。
+- 申领时报 `db_check_failed` 或照片核验失败：检查 TP 终端的 MySQL 环境变量、数据库连接及 `bi` 表中的 `user_id`/`pic_string`。
+- 智能体聊天失败：查看实例运行日志与模型地址、密钥、模型名称；网页显示 Ready 只代表实例服务已启动。
+- ANP：系统内的 Octopus 组内通信不要求先手动启动 `anp-proxy`。仓库保留代理源码供需要外部 ANP 网关的场景使用，不是打开网页或进行本地申领的前置步骤。
+
+这些演示脚本只监听本机地址，使用演示账号和固定测试密钥。不要直接把它们作为公网部署配置。`local_store/`、`data/`、`.env`、私钥和日志属于本机数据，不在 GitHub 下载包中。
+
+## 本次运行核验
+
+2026-10-17 使用项目的 `.venv312` 在独立本机端口实际启动了 TP、AP 和用户服务，逐一通过了演示账号登录、受保护主页加载和静态资源请求；同时检查了 TP 公钥及 AP 能力接口。身份申领、MySQL 照片比对、外部模型对话与首次安装智能体依赖需要外部服务或数据，本次未作端到端验证。
