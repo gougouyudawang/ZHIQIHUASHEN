@@ -2,13 +2,21 @@
 
 本仓库包含用户端、信任提供方（TP）审核端、智能体提供方（AP）管理端，以及 Octopus / OpenClaw 智能体相关代码。下面的步骤以 **Windows 本机演示** 为准；三个网页由 Python 服务直接提供，不需要单独启动前端开发服务器。
 
-## 1. 下载后，一键打开网页
+## 1. 启动三个网页
 
-在 Windows 电脑上下载 GitHub 仓库的 ZIP 并解压，进入包含 `app/` 的项目目录，**双击 `start_all.bat`**。也可以使用 `git clone https://github.com/gougouyudawang/ZHIQIHUASHEN.git` 下载，再进入克隆目录双击同一个 BAT。首次运行会自动创建 `.venv312`、安装三个网页服务的 Python 依赖、启动 TP/AP/用户端，并在默认浏览器打开用户网址；之后重复双击会复用已运行的服务。需要联网下载依赖，首次启动可能较慢。
+下载仓库并解压，在项目根目录打开三个 PowerShell 终端，依次运行以下命令（每个终端一条；首次运行请等第一条完成依赖安装后再运行后两条）：
 
-脚本会寻找 Python 3.11 或 3.12；若没有 Python 但电脑有 Windows 包管理器 `winget`，会尝试自动安装 Python 3.12。**没有 Python 且没有 winget，或电脑无法联网时，无法保证只双击 BAT 就完成首次安装**：需先手动安装 Python 3.12，并连网运行一次。仓库不包含虚拟环境。只有启动 OpenClaw 执行分支时才需要额外准备 Node.js、npm 和 Git；运行 Octopus 实例会在首次启动时为实例安装其 Python 依赖。
+```powershell
+.\start_ap_8112.bat
+.\start_tp_8111.bat
+.\start_user_8110.bat
+```
 
-只想启动一个网页，可以分别双击 `start_user_8110.bat`、`start_tp_8111.bat` 或 `start_ap_8112.bat`，它们使用同一套自动环境准备流程。服务会在后台运行；双击 `stop_all.bat` 可停止由启动脚本创建的三端服务。运行日志位于 `local_store/bootstrap_logs/`。脚本不会强制结束占用端口的其他程序；如果端口冲突，会给出错误信息。
+脚本会分别启动 AP 管理端、TP 审核端和用户端，并在默认浏览器打开对应网页。首次运行会自动创建 `.venv312`、安装网页服务所需依赖，因此需要联网，启动可能较慢。服务启动后在后台运行；运行 `.\stop_all.bat` 可停止由这些脚本启动的服务。
+
+脚本会寻找 Python 3.11 或 3.12；若没有 Python 但电脑有 Windows 包管理器 `winget`，会尝试自动安装 Python 3.12。没有 Python 且没有 winget，或电脑无法联网时，首次运行需先手动安装 Python 3.12 并连网安装依赖。仓库不包含虚拟环境。只有启动 OpenClaw 执行分支时才需要额外准备 Node.js、npm 和 Git；运行 Octopus 实例会在首次启动时为实例安装其 Python 依赖。
+
+运行日志位于 `local_store/bootstrap_logs/`。脚本不会强制结束占用端口的其他程序；如果端口冲突，会给出错误信息。
 
 ## 2. 本机网址
 
@@ -20,21 +28,6 @@
 | AP 管理端 | <http://127.0.0.1:8112/ap> | `apadmin` / `pa@2026` |
 
 未登录时会跳转到各自的 `/login` 页面。用户端的“连接与设置”应指向 `http://127.0.0.1:8111` 和 `http://127.0.0.1:8112`。`/user` 使用在线 CDN 加载 Vue 和 Element Plus，浏览器需要能访问这些资源；简版工作台的页面脚本和样式位于仓库内。
-
-如需手动启动，先在项目根目录创建环境并安装依赖：
-
-```powershell
-py -3.12 -m venv .venv312
-.\.venv312\Scripts\python.exe -m pip install -r requirements-local.txt
-```
-
-然后在三个独立终端分别设置 `$env:USE_FIXED_KEYS='1'`，并运行下列命令（每个终端一条）：
-
-```powershell
-.\.venv312\Scripts\python.exe -m uvicorn app.tp_app:app --host 127.0.0.1 --port 8111
-.\.venv312\Scripts\python.exe -m uvicorn app.ap_app:app --host 127.0.0.1 --port 8112
-.\.venv312\Scripts\python.exe -m uvicorn app.experience_app:app --host 127.0.0.1 --port 8110
-```
 
 三个启动脚本已经设置了 `USE_FIXED_KEYS=1`，使服务间使用相同的演示密钥。
 
@@ -58,7 +51,7 @@ TP 会按申请中的身份编号查询 `bi.user_id`，并将 `bi.pic_string` �
 
 ## 4. 常见问题与运行边界
 
-- `.venv312\Scripts\python.exe` 不存在：`start_all.bat` 会自动创建；如果失败，检查 Python/winget 与网络连接。
+- `.venv312\Scripts\python.exe` 不存在：三个启动脚本会自动创建；如果失败，检查 Python/winget 与网络连接。
 - 端口 8110、8111、8112 被占用：启动脚本不会结束其他进程，请先关闭冲突程序。
 - 申领时报 `db_check_failed` 或照片核验失败：检查 TP 终端的 MySQL 环境变量、数据库连接及 `bi` 表中的 `user_id`/`pic_string`。
 - 智能体聊天失败：查看实例运行日志与模型地址、密钥、模型名称；网页显示 Ready 只代表实例服务已启动。
