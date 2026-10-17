@@ -1,4 +1,4 @@
-# 智契化身 
+# 智契化身
 
 本仓库包含用户端、信任提供方（TP）审核端、智能体提供方（AP）管理端，以及 Octopus / OpenClaw 智能体相关代码。下面的步骤以 **Windows 本机演示** 为准；三个网页由 Python 服务直接提供，不需要单独启动前端开发服务器。
 
@@ -68,7 +68,7 @@ $env:MYSQL_TABLE='bi'
 
 TP 会按申请中的身份编号查询 `bi.user_id`，并将 `bi.pic_string` 与本次上传照片的数据比较。库中没有该用户、照片数据不一致或数据库不可用时，页面虽能打开，身份核验仍无法通过。演示账号只用于**登录网页**，不代表数据库已准备好，也不保证申领自动通过。通过用户端提交后，在 TP 页面审核申请，再返回用户端查看审批结果。
 
-创建并运行智能体还需要自己的模型服务配置。可将 `agent_provider/octopus/.env_template` 复制为同目录下的 `.env`，填写 `OPENAI_API_KEY`、`OPENAI_BASE_URL`、`OPENAI_MODEL`；OpenClaw 可将 `agent_provider/openclaw/.env.example` 复制为 `.env` 并填写对应参数。也可以在实例生成后，通过页面的模型配置入口为该实例单独设置。**仓库不会提供或上传模型密钥**；仅启动三个网页不等于模型对话已经可用。
+创建并运行智能体还需要可用的模型服务。本仓库按项目维护者要求包含 `agent_provider/octopus/.env` 与 `agent_provider/openclaw/.env` 中的现有模型配置；如这些密钥失效或不适用于你的环境，可在对应文件中填写自己的 `OPENAI_API_KEY`、`OPENAI_BASE_URL` 和模型名称。Octopus 的字段可参考 `agent_provider/octopus/.env_template`，OpenClaw 可参考 `agent_provider/openclaw/.env.example`。也可以在实例生成后，通过页面的模型配置入口为该实例单独设置。仅启动三个网页不等于模型对话已经可用。
 
 ## 4. 常见问题与运行边界
 
@@ -78,7 +78,7 @@ TP 会按申请中的身份编号查询 `bi.user_id`，并将 `bi.pic_string` �
 - 智能体聊天失败：查看实例运行日志与模型地址、密钥、模型名称；网页显示 Ready 只代表实例服务已启动。
 - ANP：系统内的 Octopus 组内通信不要求先手动启动 `anp-proxy`。仓库保留代理源码供需要外部 ANP 网关的场景使用，不是打开网页或进行本地申领的前置步骤。
 
-这些演示脚本只监听本机地址，使用演示账号和固定测试密钥。不要直接把它们作为公网部署配置。`local_store/`、`data/`、`.env`、私钥和日志属于本机数据，不在 GitHub 下载包中。
+这些演示脚本只监听本机地址，使用演示账号和固定测试密钥。不要直接把它们作为公网部署配置。`local_store/`、`data/`、身份私钥和日志属于本机数据，不在 GitHub 下载包中；上述两个模型 `.env` 则包含在仓库中。
 
 ## 本次运行核验
 
