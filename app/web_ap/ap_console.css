@@ -1,0 +1,551 @@
+/* ============================================================
+   AP 管理控制台 — 样式表
+   统一设计规范（科技蓝）· 与 User / TP 三端视觉一致
+   ============================================================ */
+
+:root {
+  /* 品牌色 */
+  --primary: #3867ff;
+  --primary-hover: #2d52cc;
+  --primary-soft: #ebf0ff;
+  --primary-ink: #1d4ed8;
+  --primary-border: #c7d4ff;
+
+  /* 语义色 */
+  --success: #16a34a;
+  --warning: #f59e0b;
+  --danger: #dc2626;
+  --danger-soft: #fff1f2;
+  --danger-border: #fecdd3;
+
+  /* 中性色 */
+  --text-strong: #0f172a;
+  --text: #1f2937;
+  --muted: #6b7280;
+  --muted-2: #94a3b8;
+  --border: #e5e7eb;
+  --border-soft: #eef2f7;
+  --bg: #f4f7fb;
+  --card: #ffffff;
+
+  /* 圆角 */
+  --radius-card: 14px;
+  --radius-sm: 10px;
+  --radius-btn: 8px;
+  --radius-pill: 999px;
+
+  /* 阴影 */
+  --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.04), 0 10px 26px rgba(15, 23, 42, 0.05);
+
+  /* 字体 */
+  --font-sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif;
+  --font-mono: Consolas, Monaco, "Courier New", monospace;
+
+  /* 代码块 */
+  --code-bg: #0f172a;
+  --code-fg: #dbeafe;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: 15px;
+  background: var(--bg);
+  color: var(--text);
+}
+
+/* ---------- 全宽吸顶白条（与 User / TP 三端同构） ---------- */
+
+.app-header {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  height: 68px;
+  background: #fff;
+  border-bottom: 1px solid var(--border);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
+  display: flex;
+  justify-content: center;
+}
+
+.header-inner {
+  width: 100%;
+  max-width: 1280px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 0 14px;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.brand-mark {
+  width: 40px;
+  height: 40px;
+  flex: 0 0 40px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  background: var(--primary);
+  color: #fff;
+  font-weight: 800;
+  font-size: 15px;
+}
+
+.brand-mark svg {
+  width: 23px;
+  height: 23px;
+}
+
+.brand-text h1 {
+  margin: 0;
+  font-size: 17px;
+  line-height: 1.3;
+  color: var(--text-strong);
+  white-space: nowrap;
+}
+
+.brand-text p {
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* ---------- 内容区：居中窄流，宽度与 User / TP 的 1100px 对齐 ---------- */
+
+.app-shell {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 18px 14px 40px;
+}
+
+h2 {
+  margin: 0;
+  font-size: 19px;
+  color: var(--text-strong);
+}
+
+p {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.primary-btn,
+.ghost-btn,
+.tab-btn,
+.danger-btn {
+  border: none;
+  border-radius: var(--radius-btn);
+  padding: 10px 16px;
+  cursor: pointer;
+  font-weight: 700;
+  font-size: 14px;
+  font-family: inherit;
+  transition: background 0.18s ease, color 0.18s ease, border-color 0.18s ease;
+  white-space: nowrap;
+}
+
+.primary-btn {
+  background: var(--primary);
+  color: white;
+}
+
+.primary-btn:hover {
+  background: var(--primary-hover);
+}
+
+.ghost-btn {
+  background: #f8fafc;
+  color: #334155;
+  border: 1px solid var(--border);
+}
+
+.ghost-btn:hover {
+  background: var(--primary-soft);
+  color: var(--primary);
+  border-color: var(--primary-border);
+}
+
+.danger-btn {
+  background: var(--danger-soft);
+  color: var(--danger);
+  border: 1px solid var(--danger-border);
+}
+
+.danger-btn:hover {
+  background: #ffe4e6;
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+  margin-top: 16px;
+}
+
+.stat-card,
+.panel {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+}
+
+.stat-card {
+  padding: 18px;
+}
+
+.stat-label {
+  color: var(--muted);
+  font-size: 14px;
+  margin-bottom: 8px;
+}
+
+.stat-value {
+  font-size: 26px;
+  font-weight: 800;
+  color: var(--text-strong);
+}
+
+.stat-value.small {
+  font-size: 16px;
+  line-height: 1.5;
+}
+
+.stat-desc {
+  margin-top: 8px;
+  color: var(--muted-2);
+  font-size: 13px;
+}
+
+.panel {
+  margin-top: 16px;
+  padding: 20px;
+}
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+pre {
+  margin: 0;
+  padding: 14px;
+  background: var(--code-bg);
+  color: var(--code-fg);
+  border-radius: var(--radius-sm);
+  overflow: auto;
+  font-size: 13px;
+  line-height: 1.55;
+  max-height: 420px;
+  font-family: var(--font-mono);
+}
+
+.tabs {
+  display: flex;
+  gap: 8px;
+  background: #f1f5f9;
+  padding: 4px;
+  border-radius: var(--radius-pill);
+}
+
+.tab-btn {
+  background: transparent;
+  color: #475569;
+  border-radius: var(--radius-pill);
+  padding: 8px 18px;
+}
+
+.tab-btn:hover {
+  color: var(--primary);
+}
+
+.tab-btn.active {
+  background: white;
+  color: var(--primary);
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
+}
+
+.capability-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 14px;
+}
+
+.cap-card {
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: #fff;
+}
+
+.cap-title {
+  font-weight: 800;
+  color: var(--primary);
+  font-size: 15px;
+  margin-bottom: 10px;
+}
+
+.cap-items {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 7px 11px;
+  border-radius: var(--radius-pill);
+  background: var(--primary-soft);
+  color: var(--primary-ink);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.chip.empty {
+  background: #f1f5f9;
+  color: #64748b;
+}
+
+.table-wrap {
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+  background: #fff;
+}
+
+th,
+td {
+  border-bottom: 1px solid var(--border);
+  padding: 12px 10px;
+  text-align: left;
+  vertical-align: middle;
+}
+
+tr:last-child td {
+  border-bottom: none;
+}
+
+th {
+  color: #475569;
+  background: #f8fafc;
+  font-weight: 800;
+}
+
+td code {
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+
+.row-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.two-col {
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  gap: 20px;
+  align-items: start;
+}
+
+/* 协议术语表：徽章 + 描述的行式布局，替代原来挤在窄栏里的纯文字列表 */
+.protocol-list {
+  margin: 4px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.protocol-item {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 7px 10px;
+  background: var(--bg);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+}
+
+.protocol-item dt {
+  flex: 0 0 auto;
+  min-width: 64px;
+  padding: 2px 8px;
+  background: var(--primary-soft);
+  border: 1px solid var(--primary-border);
+  border-radius: 6px;
+  color: var(--primary-ink);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  font-weight: 600;
+  text-align: center;
+  letter-spacing: 0.02em;
+}
+
+.protocol-item dd {
+  margin: 0;
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+/* 调试输出列 */
+.col-debug pre {
+  max-height: 320px;
+}
+
+@media (max-width: 1024px) {
+  .stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 800px) {
+  .brand-text p { display: none; }
+  .user-chip-meta { display: none; }
+  .panel-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .stats-grid,
+  .two-col {
+    grid-template-columns: 1fr;
+  }
+
+  .tabs {
+    width: 100%;
+  }
+
+  .tab-btn {
+    flex: 1;
+  }
+}
+
+
+/* ============================================================
+   顶栏登录用户区
+   ============================================================ */
+
+/* 当前操作者：浅蓝底胶囊，退出图标内嵌其中，与 User 端的 .user-block 同构。
+   固定 36px 与 .primary-btn 等高，顶栏一行才齐。 */
+.user-chip {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  height: 38px;
+  padding: 0 5px 0 4px;
+  background: var(--primary-soft);
+  border: 1px solid var(--primary-border);
+  border-radius: var(--radius-pill);
+}
+
+.user-chip-avatar {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #3867ff 0%, #5f83ff 100%);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13.5px;
+  font-weight: 700;
+}
+
+.user-chip-meta {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+  min-width: 0;
+}
+
+.user-chip-name {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--primary-ink);
+}
+
+.user-chip-role {
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+/* 退出是低频且带破坏性的操作：收成圆形图标按钮，hover 才露出危险色。
+   与 User 端 .icon-logout 同款视觉。 */
+.chip-logout {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  margin-left: 2px;
+  padding: 0;
+  color: var(--muted);
+  background: transparent;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.chip-logout svg {
+  width: 15px;
+  height: 15px;
+}
+
+.chip-logout:hover {
+  color: var(--danger);
+  background: #fee2e2;
+}
+
+.chip-logout:active {
+  background: #ffe4e6;
+}
+
+.chip-logout:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+@media (max-width: 640px) {
+  .user-chip-meta {
+    display: none;
+  }
+
+  .user-chip {
+    padding: 0 4px;
+  }
+}

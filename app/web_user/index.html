@@ -1,0 +1,37 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>智契化身 · 用户控制台</title>
+  <link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css">
+  <script type="importmap">
+    {
+      "imports": {
+        "vue": "https://unpkg.com/vue@3/dist/vue.esm-browser.prod.js"
+      }
+    }
+  </script>
+  <style>
+    body{font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei","PingFang SC",sans-serif;margin:0;background:#f4f7fb;color:#1f2937}
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+  <script type="module">
+    import * as Vue from 'https://unpkg.com/vue@3/dist/vue.esm-browser.prod.js';
+    import ElementPlus from 'https://unpkg.com/element-plus/dist/index.full.mjs';
+    import { loadModule } from 'https://unpkg.com/vue3-sfc-loader/dist/vue3-sfc-loader.esm.js';
+    const options = {
+      moduleCache: { vue: Vue },
+      getFile(url) { return fetch(url).then(r => r.ok ? r.text() : Promise.reject(r)); },
+      addStyle(textContent) { const style = document.createElement('style'); style.textContent = textContent; document.head.appendChild(style); }
+    };
+    // ?v= 由服务端替换成静态目录的 mtime 版本号：改动即失效，未改动则走缓存。
+    // 比 Date.now() 每刷新一次都全量重下 108KB 更省，也不会拿到旧副本。
+    const App = await loadModule('/user/static/UserApp.vue?v=__ASSET_V__', options);
+    Vue.createApp(App).use(ElementPlus).mount('#app');
+  </script>
+</body>
+</html>
+
