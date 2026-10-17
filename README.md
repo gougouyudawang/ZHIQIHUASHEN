@@ -2,36 +2,15 @@
 
 本仓库包含用户端、信任提供方（TP）审核端、智能体提供方（AP）管理端，以及 Octopus / OpenClaw 智能体相关代码。下面的步骤以 **Windows 本机演示** 为准；三个网页由 Python 服务直接提供，不需要单独启动前端开发服务器。
 
-## 1. 下载并安装基础依赖
+## 1. 下载后，一键打开网页
 
-安装 Python 3.12。然后在 PowerShell 中运行：
+在 Windows 电脑上下载 GitHub 仓库的 ZIP 并解压，进入包含 `app/` 的项目目录，**双击 `start_all.bat`**。也可以使用 `git clone https://github.com/gougouyudawang/ZHIQIHUASHEN.git` 下载，再进入克隆目录双击同一个 BAT。首次运行会自动创建 `.venv312`、安装三个网页服务的 Python 依赖、启动 TP/AP/用户端，并在默认浏览器打开用户网址；之后重复双击会复用已运行的服务。需要联网下载依赖，首次启动可能较慢。
 
-```powershell
-git clone https://github.com/gougouyudawang/ZHIQIHUASHEN.git
-cd ZHIQIHUASHEN
-py -3.12 -m venv .venv312
-.\.venv312\Scripts\python.exe -m pip install -r requirements-local.txt
-```
+脚本会寻找 Python 3.11 或 3.12；若没有 Python 但电脑有 Windows 包管理器 `winget`，会尝试自动安装 Python 3.12。**没有 Python 且没有 winget，或电脑无法联网时，无法保证只双击 BAT 就完成首次安装**：需先手动安装 Python 3.12，并连网运行一次。仓库不包含虚拟环境。只有启动 OpenClaw 执行分支时才需要额外准备 Node.js、npm 和 Git；运行 Octopus 实例会在首次启动时为实例安装其 Python 依赖。
 
-也可以从 GitHub 下载 ZIP 并解压，之后在解压后的**项目根目录**运行后三条命令。根目录是包含 `app/` 和三个 `start_*.bat` 的目录。安装依赖需要联网；仓库不包含虚拟环境。只有启动 OpenClaw 执行分支时才需要额外准备 Node.js、npm 和 Git；运行 Octopus 实例会在首次启动时为实例安装其 Python 依赖。
+只想启动一个网页，可以分别双击 `start_user_8110.bat`、`start_tp_8111.bat` 或 `start_ap_8112.bat`，它们使用同一套自动环境准备流程。服务会在后台运行；双击 `stop_all.bat` 可停止由启动脚本创建的三端服务。运行日志位于 `local_store/bootstrap_logs/`。脚本不会强制结束占用端口的其他程序；如果端口冲突，会给出错误信息。
 
-## 2. 启动本地网页
-
-分别打开三个 PowerShell 窗口，都先进入项目根目录，再各运行一条命令：
-
-```powershell
-.\start_tp_8111.bat
-```
-
-```powershell
-.\start_ap_8112.bat
-```
-
-```powershell
-.\start_user_8110.bat
-```
-
-启动顺序建议 TP → AP → 用户端。脚本使用 `.venv312\Scripts\python.exe`，并将三个服务只绑定到 `127.0.0.1`。保持三个终端窗口开启；关闭窗口即停止对应服务。**脚本启动前会强制结束占用其目标端口的进程**，如果端口上有其他程序，请先确认再运行。
+## 2. 本机网址
 
 | 页面 | 本机地址 | 演示账号 |
 | --- | --- | --- |
@@ -42,7 +21,14 @@ py -3.12 -m venv .venv312
 
 未登录时会跳转到各自的 `/login` 页面。用户端的“连接与设置”应指向 `http://127.0.0.1:8111` 和 `http://127.0.0.1:8112`。`/user` 使用在线 CDN 加载 Vue 和 Element Plus，浏览器需要能访问这些资源；简版工作台的页面脚本和样式位于仓库内。
 
-如果不使用 `.bat`，可在已进入项目根目录且已设置 `USE_FIXED_KEYS=1` 的三个终端中分别运行：
+如需手动启动，先在项目根目录创建环境并安装依赖：
+
+```powershell
+py -3.12 -m venv .venv312
+.\.venv312\Scripts\python.exe -m pip install -r requirements-local.txt
+```
+
+然后在三个独立终端分别设置 `$env:USE_FIXED_KEYS='1'`，并运行下列命令（每个终端一条）：
 
 ```powershell
 .\.venv312\Scripts\python.exe -m uvicorn app.tp_app:app --host 127.0.0.1 --port 8111
@@ -50,7 +36,7 @@ py -3.12 -m venv .venv312
 .\.venv312\Scripts\python.exe -m uvicorn app.experience_app:app --host 127.0.0.1 --port 8110
 ```
 
-上面每条命令必须在**不同终端**运行，不能在一个终端里依次等待执行。三个启动脚本已经设置了 `USE_FIXED_KEYS=1`，手动启动时请在每个终端先执行 `$env:USE_FIXED_KEYS='1'`，使服务间使用相同的演示密钥。
+三个启动脚本已经设置了 `USE_FIXED_KEYS=1`，使服务间使用相同的演示密钥。
 
 ## 3. 完成申领流程前，还需配置什么
 
@@ -72,8 +58,8 @@ TP 会按申请中的身份编号查询 `bi.user_id`，并将 `bi.pic_string` �
 
 ## 4. 常见问题与运行边界
 
-- `.venv312\Scripts\python.exe` 不存在：先完成第 1 步创建虚拟环境，或检查 Python 3.12 是否安装。
-- 端口 8110、8111、8112 被占用：启动脚本会结束占用对应端口的进程；如不希望这样，请先关闭冲突程序并使用手动启动命令。
+- `.venv312\Scripts\python.exe` 不存在：`start_all.bat` 会自动创建；如果失败，检查 Python/winget 与网络连接。
+- 端口 8110、8111、8112 被占用：启动脚本不会结束其他进程，请先关闭冲突程序。
 - 申领时报 `db_check_failed` 或照片核验失败：检查 TP 终端的 MySQL 环境变量、数据库连接及 `bi` 表中的 `user_id`/`pic_string`。
 - 智能体聊天失败：查看实例运行日志与模型地址、密钥、模型名称；网页显示 Ready 只代表实例服务已启动。
 - ANP：系统内的 Octopus 组内通信不要求先手动启动 `anp-proxy`。仓库保留代理源码供需要外部 ANP 网关的场景使用，不是打开网页或进行本地申领的前置步骤。
@@ -82,4 +68,4 @@ TP 会按申请中的身份编号查询 `bi.user_id`，并将 `bi.pic_string` �
 
 ## 本次运行核验
 
-2026-10-17 使用项目的 `.venv312` 在独立本机端口实际启动了 TP、AP 和用户服务，逐一通过了演示账号登录、受保护主页加载和静态资源请求；同时检查了 TP 公钥及 AP 能力接口。身份申领、MySQL 照片比对、外部模型对话与首次安装智能体依赖需要外部服务或数据，本次未作端到端验证。
+2026-10-17 除已有环境外，还从空虚拟环境实际运行了 `scripts/start_local.ps1`：脚本创建虚拟环境、在线安装依赖，并启动 TP、AP 和用户服务；三个新服务逐一通过了演示账号登录、受保护主页加载和静态资源请求。身份申领、MySQL 照片比对、外部模型对话与首次安装智能体依赖需要外部服务或数据，本次未作端到端验证。
