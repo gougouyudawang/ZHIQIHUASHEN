@@ -1,38 +1,66 @@
 'use strict';
 (() => {
  const panel=document.createElement('section');panel.className='panel anp-panel';panel.hidden=true;
- panel.innerHTML='<h2>主子伙伴通信 <small>ANP</small></h2><p class="muted">启动双方后，通过本机 ANP 网关互发消息。记录保存在本地，重启后可查看；收到消息不代表模型执行了任务。</p><form id="anp-form"><label>发送给<select id="anp-target" required></select></label><label>消息内容<textarea id="anp-content" required maxlength="4000" rows="3" placeholder="给伙伴留一条消息"></textarea></label><button class="primary" id="anp-send">发送消息</button> <button type="button" class="secondary" id="anp-refresh">刷新消息</button></form><p id="anp-status" role="status"></p><h3>收件箱</h3><div id="anp-inbox"></div><h3>发送记录</h3><div id="anp-outbox"></div>';
+ panel.innerHTML='<div class="section-title"><div><h2>智能体通信协同 · 工作日志</h2><p class="muted">按时间记录智能体启动、协同请求与结果返回；不记录消息或问答内容。</p></div><button type="button" class="secondary" id="anp-refresh">刷新日志</button></div><p id="anp-status" role="status" aria-live="polite"></p><div id="anp-log" class="anp-log" role="log" aria-label="智能体协同工作日志" aria-live="polite"></div>';
  document.querySelector('#partner-detail').append(panel);
- let currentType='octopus';let current='',version=0,draft=null,sending=false;
+ let currentType='octopus',current='',version=0,loading=false,timer=null;
  const el=id=>panel.querySelector('#'+id);
- const endpoint=()=>'/user/anp/';
- const transport=()=>'ANP';
- const labels={delivered:'已接收',failed:'投递未确认',pending:'等待确认',received:'已收到'};
- async function inbox(){const v=version;try{
-  const data=await api(endpoint()+encodeURIComponent(current));if(v!==version)return;
-  el('anp-status').textContent=data.connected?transport()+'已就绪 · 消息记录已更新':transport()+'未就绪 · 可查看历史消息，发送前请启动双方';
-  if(data.identity_memory){const m=data.identity_memory;el('anp-status').textContent+=` · 行为图谱 ${m.events} 条可信事件 · `+(m.last_auth?.mode==='history'?'最近接收：历史挑战认证通过':m.last_auth?.mode==='bootstrap'?'最近接收：首次密钥认证通过，已建立行为记忆':'尚无接收认证记录');}
-  for(const [id,items] of [['anp-inbox',data.messages||[]],['anp-outbox',data.sent||[]]]){
-   el(id).replaceChildren();for(const message of items){const row=document.createElement('div');row.className='anp-message';const text=document.createElement('p');text.textContent=`${id==='anp-inbox'?message.sender_did:message.target_id} · ${message.timestamp}\n${message.content}\n${labels[message.status]||''}`;row.append(text);
-    if(id==='anp-outbox'&&['failed','pending'].includes(message.status)){const retry=document.createElement('button');retry.className='secondary';retry.textContent='重试这条消息';retry.disabled=sending;retry.onclick=()=>transmit({target_id:message.target_id,content:message.content,message_id:message.message_id});row.append(retry);}el(id).append(row);
-   }if(!items.length)el(id).textContent=id==='anp-inbox'?'暂未收到消息。':'暂无发送记录。';
-  }
- }catch(e){if(v===version)el('anp-status').textContent=e.message;}}
- async function select(id,type=currentType){currentType=type;current=id;const v=++version;draft=null;sending=false;panel.hidden=currentType!=='octopus';if(panel.hidden)return;
-  panel.querySelector('h2').textContent='同组伙伴通信 · '+transport();
-  panel.querySelector('p.muted').textContent='启动双方后，通过本机 ANP 网关互发消息。记录保存在本地；收到消息不代表模型执行了任务。';
-  el('anp-target').replaceChildren();el('anp-content').value='';el('anp-inbox').replaceChildren();el('anp-outbox').replaceChildren();el('anp-status').textContent='请启动双方后发送，或刷新消息查看历史记录。';
-  try{const data=await api('/user/children/'+encodeURIComponent(state.phc.id));if(v!==version)return;const members=[{phc_id:state.phc.id.replaceAll(':','_'),name:'主智能体'},...data.children.filter(item=>item.agent_type!=='openclaw')];for(const item of members){if(item.phc_id===current)continue;const option=document.createElement('option');option.value=item.phc_id;option.textContent=item.name;el('anp-target').append(option);}el('anp-send').disabled=!el('anp-target').options.length;}catch(e){if(v===version)el('anp-status').textContent=e.message;}
+ const endpoint=()=>'/user/anp/'+encodeURIComponent(current);
+ const statusLabels={processing:'处理中',completed:'已完成',failed:'未完成',sent:'已发起',received:'已接收',delivered:'已投递',pending:'等待确认',unknown:'状态未知'};
+ function formatTime(value){const date=new Date(value);return Number.isNaN(date.getTime())?'时间未知':date.toLocaleString();}
+ function eventDescription(item){
+  const actor=item.agent_name||item.agent_id||'智能体',peer=item.peer_name||item.peer_id||'同组伙伴';
+  if(item.kind==='agent_started')return `${actor} 已启动`;
+  if(item.kind==='agent_stopped')return `${actor} 已停止`;
+  if(item.kind==='request_sent')return `${actor} 向 ${peer} 发起协同请求`;
+  if(item.kind==='request_received')return `${actor} 收到 ${peer} 的协同请求`;
+  if(item.kind==='response_returned')return `${actor} 向 ${peer} 返回协同结果`;
+  if(item.kind==='response_received')return `${actor} 收到 ${peer} 返回的协同结果`;
+  if(item.kind==='request_failed')return `${actor} 与 ${peer} 的协同请求未完成`;
+  if(item.kind==='chat_request')return item.direction==='received'?`${actor} 收到 ${peer} 的协同请求`:`${actor} 向 ${peer} 发起协同请求`;
+  if(item.kind==='chat_response')return item.direction==='received'?`${actor} 向 ${peer} 返回协同结果`:`${actor} 收到 ${peer} 返回的协同结果`;
+  if(item.kind==='message')return item.direction==='in'?`${actor} 收到 ${peer} 的通信消息`:`${actor} 向 ${peer} 发送通信消息`;
+  return `${actor} 的通信状态已更新`;
  }
- async function transmit(body){if(sending)return;const v=version;sending=true;el('anp-send').disabled=true;el('anp-status').textContent='正在通过'+transport()+'投递…';
-  try{const data=await api(endpoint()+encodeURIComponent(current)+'/send',body);if(v!==version)return;el('anp-content').value='';draft=null;await inbox();if(v===version)el('anp-status').textContent='对方已接收 · 回执 '+data.receipt.message_id;}
-  catch(e){if(v===version){await inbox();if(v===version)el('anp-status').textContent=e.message+'。可重试同一条消息，不会重复入箱。';}}
-  finally{if(v===version){sending=false;el('anp-send').disabled=!el('anp-target').options.length;panel.querySelectorAll('#anp-outbox button').forEach(button=>button.disabled=false);}}
+ function eventStatus(item){
+  if(item.status==='failed'||item.kind==='request_failed')return '未完成';
+  if(item.kind==='agent_started')return '已启动';
+  if(item.kind==='agent_stopped')return '已停止';
+  if(item.kind==='request_sent')return '已发起';
+  if(item.kind==='request_received')return '已接收';
+  if(item.kind==='response_returned')return '已返回';
+  if(item.kind==='response_received')return '已收到';
+  return statusLabels[item.status]||statusLabels.unknown;
  }
- el('anp-refresh').onclick=inbox;
- el('anp-form').onsubmit=event=>{event.preventDefault();const target_id=el('anp-target').value,content=el('anp-content').value;if(!content.trim())return;
-  if(!draft||draft.target_id!==target_id||draft.content!==content)draft={target_id,content,message_id:crypto.randomUUID()};transmit(draft);
- };
+ async function refresh(){
+  const v=version;if(!current||loading)return;loading=true;el('anp-status').textContent='正在读取工作日志…';
+  try{
+   const data=await api(endpoint());if(v!==version)return;
+   const events=data.activity||[];
+   el('anp-status').textContent=data.connected?'通信服务已连接，工作日志每 5 秒更新。':(data.message||'通信服务未连接；仍可查看已有工作日志。');
+   const log=el('anp-log'),scrollTop=log.scrollTop;log.replaceChildren();
+   for(const item of events){
+    const row=document.createElement('article');row.className='anp-log-entry';
+    const marker=document.createElement('span');marker.className='anp-log-marker';
+    const detail=document.createElement('div');detail.className='anp-log-detail';
+    const title=document.createElement('strong');title.textContent=eventDescription(item);
+    const meta=document.createElement('p');meta.textContent=formatTime(item.timestamp);
+    const stateLabel=document.createElement('span');stateLabel.className='anp-log-state';stateLabel.textContent=eventStatus(item);
+    detail.append(title,meta);row.append(marker,detail,stateLabel);log.append(row);
+   }
+   if(!events.length){const empty=document.createElement('p');empty.className='muted';empty.textContent='暂无工作记录；智能体启动或开始协同时，事件会显示在这里。';log.append(empty);}
+   log.scrollTop=scrollTop;
+  }catch(e){if(v===version)el('anp-status').textContent=e.message;}
+  finally{if(v===version)loading=false;}
+ }
+ async function select(id,type=currentType){
+  currentType=type;current=id;version++;loading=false;
+  if(timer){clearInterval(timer);timer=null;}
+  panel.hidden=currentType!=='octopus';if(panel.hidden)return;
+  el('anp-status').textContent='正在读取工作日志…';el('anp-log').replaceChildren();
+  await refresh();timer=setInterval(refresh,5000);
+ }
+ el('anp-refresh').onclick=refresh;
  window.addEventListener('runtime-selected',event=>select(event.detail.id,event.detail.agent_type||state.type));
  window.addEventListener('children-updated',()=>{if(current)select(current);});
  window.addEventListener('agent-record-ready',()=>{if(!current&&state.phc?.id)select(state.phc.id.replaceAll(':','_'));});

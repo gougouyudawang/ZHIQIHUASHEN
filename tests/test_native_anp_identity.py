@@ -10,6 +10,7 @@ import httpx
 from fastapi import FastAPI
 from app import group_anp
 from app.identity_memory import provision
+from app.anp_mailbox import ActivityLog, Mailbox
 from app.octopus_group_runtime import attach,group_chat,MessageRequest
 
 
@@ -33,11 +34,26 @@ class NativeChatTests(unittest.IsolatedAsyncioTestCase):
                 attach(a,None,registry,'parent');attach(b,None,registry,'child',lambda:model)
                 async with a.router.lifespan_context(a),b.router.lifespan_context(b):
                     with patch.dict(os.environ,{'OCTOPUS_GROUP_FILE':str(registry),'OCTOPUS_INSTANCE_ID':'parent'}):
-                        result=await group_chat('hello '+str(cycle),'127.0.0.1:19132')
+                        conversation_id='native-chat-'+str(cycle)
+                        result=await group_chat('hello '+str(cycle),'127.0.0.1:19132',conversation_id)
                         self.assertEqual(result['identity_auth'],expected)
                         self.assertEqual(result['response'],'reply from target')
                         self.assertEqual(result['identity_events'],cycle+1)
+                        sent=Mailbox(root/'agents/parent/anp_messages.sqlite3').conversations()
+                        self.assertTrue(any(item['message_id']==conversation_id and item['response']=='reply from target' for item in sent))
+                        events=ActivityLog(registry.with_suffix('.activity.sqlite3')).listing()
+                        current=[item for item in events if item['conversation_id']==conversation_id]
+                        self.assertEqual(
+                            [(item['kind'],item['agent_id'],item['peer_id']) for item in current],
+                            [('request_sent','parent','child'),('request_received','child','parent'),
+                             ('response_returned','child','parent'),('response_received','parent','child')],
+                        )
+                        self.assertNotIn('hello '+str(cycle),str(current))
+                        self.assertNotIn('reply from target',str(current))
                         with self.assertRaises(ValueError):await group_chat('no','127.0.0.1:9999')
+                    received=Mailbox(root/'agents/child/anp_messages.sqlite3').conversations()
+                    self.assertTrue(any(item['message_id']==conversation_id and item['request']=='hello '+str(cycle)
+                                        and item['response']=='reply from target' for item in received))
                     self.assertEqual(model.process_natural_language.await_count,cycle+1)
                     # A valid group token alone cannot invoke the target model.
                     async with httpx.AsyncClient(trust_env=False,timeout=5) as client:
