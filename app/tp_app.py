@@ -68,6 +68,7 @@ TP_PUBLIC_PATHS = [
     "/v1/tp/verify_phc",
     "/v1/tp/trace",
     "/v1/tp/recover_phc",
+    "/v1/tp/reissue_updated_phc",
 ]
 
 

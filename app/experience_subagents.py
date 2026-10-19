@@ -5,8 +5,9 @@ import threading
 import uuid
 import shutil
 import logging
+from pathlib import Path
 from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from app import user_app as legacy
 from app import experience_runtime as runtime
@@ -14,6 +15,85 @@ from app import experience_runtime as runtime
 router = APIRouter(prefix='/user/children', dependencies=[Depends(runtime.guard)])
 CREATE_LOCK = threading.Lock()
 logger = logging.getLogger(__name__)
+OCTOPUS_CHILD_CAPABILITIES = {
+    'text-processing': '文本处理', 'news-search': '新闻搜索',
+    'web-browsing': '网页浏览', 'webchat': '网页对话',
+}
+OPENCLAW_BRANCH_CAPABILITIES = {
+    'browser': '浏览器工具', 'file_access': '文件访问',
+    'memory': '本地记忆', 'shell': '命令执行',
+    'canvas': '画布', 'camera': '摄像头', 'webchat': '网页对话',
+}
+
+
+def _owned_child(child_id: str, request):
+    child = runtime.agent_dir(child_id)
+    manifest_path = child / 'agent_manifest.json'
+    manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
+    parent_id = str(manifest.get('parent_phc_id') or '')
+    if not parent_id or manifest.get('credential_mode') != 'inherited_from_parent':
+        raise HTTPException(400, '所选实例不是继承身份的子智能体')
+    snapshot_path = Path(legacy._last_agent_path(request))
+    try:
+        account = json.loads(snapshot_path.read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        raise HTTPException(403, '当前账号没有主智能体记录') from None
+    if str((account.get('phc') or {}).get('id') or '') != parent_id:
+        raise HTTPException(403, '该子智能体不属于当前账号')
+    if child.name == parent_id.replace(':', '_'):
+        raise HTTPException(400, '请选择子智能体')
+    kind = 'openclaw' if (child / 'openclaw_package').is_dir() else 'octopus'
+    return child, manifest, kind
+
+
+@router.get('/instance/{child_id}/update-options')
+def child_update_options(child_id: str, request: Request):
+    child, manifest, kind = _owned_child(child_id, request)
+    options = OPENCLAW_BRANCH_CAPABILITIES if kind == 'openclaw' else OCTOPUS_CHILD_CAPABILITIES
+    return {'success': True, 'id': child.name, 'name': manifest.get('name') or child.name,
+            'agent_type': kind, 'capabilities': manifest.get('capabilities') or [],
+            'options': [{'id': key, 'label': value} for key, value in options.items()]}
+
+
+class ChildUpdate(BaseModel):
+    capabilities: list[str] = Field(max_length=10)
+
+
+@router.post('/instance/{child_id}/update')
+def update_child(child_id: str, payload: ChildUpdate, request: Request):
+    child, manifest, kind = _owned_child(child_id, request)
+    if kind != 'octopus':
+        raise HTTPException(400, 'OpenClaw 执行分支请使用技能更新页面')
+    selected = list(dict.fromkeys(payload.capabilities))
+    if not selected or not set(selected) <= set(OCTOPUS_CHILD_CAPABILITIES):
+        raise HTTPException(400, '请选择该 Octopus 子智能体支持的能力')
+    if runtime.snapshot(child_id)['stage'] in {'checking', 'installing', 'starting', 'recovering', 'ready'}:
+        raise HTTPException(409, '请先停止该子智能体，再更新能力')
+    package = child / 'octopus_build'
+    source = runtime.ROOT / 'agent_provider/octopus/octopus/agents'
+    mapping = {'text-processing': ('text_processor', 'text_processor_agent.py'),
+               'news-search': ('news', 'news_agent.py'),
+               'web-browsing': ('web_browsing', 'web_browsing_agent.py')}
+    agents_dir = package / 'octopus/agents'
+    if not agents_dir.is_dir():
+        raise HTTPException(409, '子智能体运行包不完整，请先修复实例')
+    for capability, (_, filename) in mapping.items():
+        target = agents_dir / filename
+        if capability in selected:
+            if not (source / filename).is_file():
+                raise HTTPException(409, '项目缺少所选能力的运行代码')
+            shutil.copy2(source / filename, target)
+        else:
+            target.unlink(missing_ok=True)
+    allowed = [runtime_name for cap, (runtime_name, _) in mapping.items() if cap in selected]
+    active_path = child / 'active_agents.json'
+    active = json.loads(active_path.read_text(encoding='utf-8')) if active_path.exists() else {}
+    active['allowed_agents'] = allowed
+    active_path.write_text(json.dumps(active, ensure_ascii=False, indent=2), encoding='utf-8')
+    manifest['capabilities'] = selected
+    (child / 'agent_manifest.json').write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding='utf-8')
+    return {'success': True, 'id': child_id, 'capabilities': selected, 'allowed_agents': allowed,
+            'credential_mode': 'inherited_from_parent'}
 
 def create_octopus_child(request, parent):
     child_id=parent.name+'_sub_'+uuid.uuid4().hex[:12]
@@ -119,7 +199,7 @@ async def create_child(request: ChildRequest):
     if kind == 'openclaw':
         raise HTTPException(400, 'OpenClaw 仅作为独立身份认证实例，不支持创建子智能体')
     octopus = (request.agent_type or 'octopus') == 'octopus'
-    supported={'text-processing','news-search','web-browsing','webchat'} if octopus else {'browser','file_access','shell','canvas','memory','camera','webchat'}
+    supported=set(OCTOPUS_CHILD_CAPABILITIES if octopus else OPENCLAW_BRANCH_CAPABILITIES)
     if not set(request.capabilities) <= supported:
         raise HTTPException(400, '存在不支持的能力')
     if not CREATE_LOCK.acquire(blocking=False):

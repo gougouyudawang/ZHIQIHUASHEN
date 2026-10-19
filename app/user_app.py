@@ -57,12 +57,9 @@ from app import web_assets
 
 USER_WEB_DIR = os.path.join(os.getcwd(), "app", "web_user")
 
-auth.render_login_page(
-    app,
-    page_path="/user/login",
-    html_file=os.path.join(USER_WEB_DIR, "login.html"),
-    static_dir=USER_WEB_DIR,
-)
+@app.get("/user/login", include_in_schema=False)
+def user_login_page() -> Response:
+    return Response(status_code=303, headers={"Location": "/user/static/experience/login.html", "Cache-Control": "no-store"})
 
 auth.register_auth_routes(
     app,
@@ -120,20 +117,21 @@ def _build_octopus_snapshot(
     personal_dir = os.path.join(root, "octopus_build")
     src_dir = os.path.join(os.getcwd(), "agent_provider", "octopus")
 
-    if os.path.exists(personal_dir):
-        shutil.rmtree(personal_dir, ignore_errors=True)
-
     shutil.copytree(
         src_dir,
         personal_dir,
-        dirs_exist_ok=False,
+        dirs_exist_ok=True,
         ignore=shutil.ignore_patterns(
             ".venv",
+            ".web-venv",
             "venv",
             "__pycache__",
             ".git",
             ".idea",
             ".vscode",
+            ".env",
+            "*.log",
+            "*.egg-info",
         ),
     )
 
@@ -274,7 +272,7 @@ class RequestCreateAgent(BaseModel):
     cmc: list
     agent_type: str | None = None
     hooks_config: dict | None = None
-    skills_config: list | None = None 
+    skills_config: list | None = None
     llm_config: dict | None = None
 
 class RequestPARecover(BaseModel):
@@ -291,6 +289,7 @@ class RequestUpdateInit(BaseModel):
 
 class RequestUpdateSubmit(BaseModel):
     base_url: str
+    tp_base_url: str = "http://127.0.0.1:8111"
     cmc: list
     hid: str
     phc: Dict[str, Any]
@@ -1327,14 +1326,17 @@ def user_update_submit(req: RequestUpdateSubmit) -> Dict[str, Any]:
         root = os.path.join(os.getcwd(), "local_store", "agents", phc_id)
         os.makedirs(root, exist_ok=True)
         features = [m.get("label") for m in (req.cmc[0] if len(req.cmc)>0 else [])]
-        mapping = {"text-processing": "text_processor", "news-search": "news", "web_browsing": "web_browsing"}
+        mapping = {"text-processing": "text_processor", "news-search": "news", "web-browsing": "web_browsing"}
         allowed_agents = [mapping.get(x, "") for x in features]
         allowed_agents = [x for x in allowed_agents if x]
         personal_dir = os.path.join(root, "octopus_build")
         src_dir = os.path.join(os.getcwd(), "agent_provider", "octopus")
-        if os.path.exists(personal_dir):
-            shutil.rmtree(personal_dir, ignore_errors=True)
-        shutil.copytree(src_dir, personal_dir, dirs_exist_ok=False)
+        # Refresh code without deleting the instance's Python environment,
+        # model configuration or runtime logs. Deleting this directory used
+        # to remove .web-venv and made every subsequent launch reinstall it.
+        shutil.copytree(src_dir, personal_dir, dirs_exist_ok=True,
+            ignore=shutil.ignore_patterns('.venv', '.web-venv', 'venv',
+                '__pycache__', '.git', '.idea', '.vscode', '.env', '*.log', '*.egg-info'))
         prune_map = {
             "text_processor": os.path.join(personal_dir, "octopus", "agents", "text_processor_agent.py"),
             "news": os.path.join(personal_dir, "octopus", "agents", "news_agent.py"),
@@ -1347,8 +1349,8 @@ def user_update_submit(req: RequestUpdateSubmit) -> Dict[str, Any]:
                     os.remove(fpath)
                 except Exception:
                     pass
-        from crypto_lib import dir_code_cmi
-        cmi_code_int = dir_code_cmi(personal_dir)
+        from crypto_lib import dir_code_cmi_hid
+        cmi_code_int = dir_code_cmi_hid(personal_dir, hid_use)
     except Exception:
         cmi_code_int = None
     obj = {"CMC": req.cmc, "HID": hid_use, "PHC": req.phc}
@@ -1373,7 +1375,7 @@ def user_update_submit(req: RequestUpdateSubmit) -> Dict[str, Any]:
             hid_use = hid_str if is_hex else sha256_hex(hid_str)
         except Exception:
             hid_use = sha256_hex(str(req.hid))
-        calc_cmi_int = hcgen_cmi(req.cmc, hid_use)
+        calc_cmi_int = cmi_code_int if cmi_code_int is not None else hcgen_cmi(req.cmc, hid_use)
         pa_cmi = ((obj2.get("PA") or {}).get("APM") or {}).get("CMI")
         verified_cmi = (str(calc_cmi_int) == str(pa_cmi))
         try:
@@ -1402,6 +1404,31 @@ def user_update_submit(req: RequestUpdateSubmit) -> Dict[str, Any]:
         verified_af = (str(af_prev) == str(af_calc_user))
         obj2["verified_cmi"] = verified_cmi
         obj2["verified_af_user"] = verified_af
+
+        if not verified_cmi or not verified_af:
+            return {"success": False, "error": "ap_update_verification_failed", "verified_cmi": verified_cmi, "verified_af_user": verified_af}
+        try:
+            from trust_provider.phc import verify_phc
+            reissue = httpx.post(
+                req.tp_base_url.rstrip('/') + '/v1/tp/reissue_updated_phc',
+                json={"hid": hid_use, "candidate_phc": obj2["PHC"], "pa": obj2["PA"], "r_bind2": obj2.get("r_bind2")},
+                timeout=15.0,
+            )
+            if reissue.status_code == 404:
+                return {"success": False, "error": "TP 重签接口不可用，请重启 TP 服务后重试。"}
+            reissue.raise_for_status()
+            signed_phc = reissue.json().get("phc")
+            if not signed_phc or not verify_phc(signed_phc) or signed_phc.get("PROOF", {}).get("needs_tp_resign"):
+                return {"success": False, "error": "TP 未返回可验证的重签凭证。"}
+            obj2["PHC"] = signed_phc
+            obj2["verified_phc_user"] = True
+        except Exception as exc:
+            detail = ""
+            try:
+                detail = str(reissue.json().get("detail") or "")
+            except Exception:
+                pass
+            return {"success": False, "error": "TP 重签失败：" + (detail or str(exc))}
 
         # Update local agent configuration files (manifest, active_agents, launcher)
         try:
@@ -1516,42 +1543,7 @@ def user_update_submit(req: RequestUpdateSubmit) -> Dict[str, Any]:
 
 @app.get('/user')
 def ui() -> Response:
-    # 交给 web_assets 渲染：替换资源版本占位符 + 禁止 HTML 自身被缓存。
-    # UserApp.vue 是浏览器运行时现场编译的，缓存到旧版会让界面行为与代码脱节。
-    return web_assets.render_html(
-        os.path.join(os.getcwd(), "app", "web_user", "index.html"),
-        USER_WEB_DIR,
-    )
-
-@app.get('/user/simple')
-def ui_simple() -> Response:
-    import os
-    path = os.path.join(os.getcwd(), "app", "web_user", "simple.html")
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            return Response(content=f.read(), media_type='text/html')
-    except Exception:
-        return Response(content="<h1>Missing simple test page</h1>", media_type='text/html')
-
-@app.get('/user/no-library')
-def ui_no_library() -> Response:
-    import os
-    path = os.path.join(os.getcwd(), "app", "web_user", "no-library.html")
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            return Response(content=f.read(), media_type='text/html')
-    except Exception:
-        return Response(content="<h1>Missing no-library test page</h1>", media_type='text/html')
-
-@app.get('/user/minimal-vue')
-def ui_minimal_vue() -> Response:
-    import os
-    path = os.path.join(os.getcwd(), "app", "web_user", "minimal-vue.html")
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            return Response(content=f.read(), media_type='text/html')
-    except Exception:
-        return Response(content="<h1>Missing minimal-vue test page</h1>", media_type='text/html')
+    return Response(status_code=303, headers={"Location": "/user/static/experience/index.html", "Cache-Control": "no-store"})
 
 
 # ==================== 子 Agent 数据模型 ====================
@@ -2328,7 +2320,7 @@ def user_check_phc_application(req: RequestPHCStatus) -> Dict[str, Any]:
 # 保护范围：/user 控制台页面及其全部业务接口
 # 放行范围：
 #   /user/login         登录页本身
-#   /user/static/*      静态资源（主页面靠 /user/static/UserApp.vue 运行时加载）
+#   /user/static/*      智契化身页面及静态资源
 #   /user/api/*         登录 / 登出 / 身份查询
 #
 # 之所以敢把业务接口一并保护：页面与接口同源，浏览器会自动携带 Cookie，
@@ -2349,5 +2341,5 @@ auth.install_auth(
 )
 
 # 静态资源缓存策略。必须放在 install_auth 之后（后添加的中间件在外层）。
-# UserApp.vue 是运行时现场编译的，缓存了旧版会直接导致界面行为与代码不一致。
+# 更新页面脚本后必须重新获取资源，避免浏览器继续执行旧版启动流程。
 web_assets.install_static_cache(app, ["/user/static/"])

@@ -236,6 +236,21 @@ def repair_octopus_package(pkg):
     if any(name in restored for name in ('pyproject.toml','octopus')):(pkg/'.web-dependencies-ready').unlink(missing_ok=True)
     return restored
 
+
+def stop_octopus_using_venv(python):
+    """Stop only stale Octopus processes using this instance's interpreter."""
+    if os.name != 'nt':
+        return
+    escaped = str(python.resolve()).replace("'", "''")
+    script = ("try { Get-Process -Name python,pythonw -ErrorAction SilentlyContinue | "
+              f"Where-Object {{ $_.Path -eq '{escaped}' }} | "
+              "Stop-Process -Force -ErrorAction Stop; exit 0 } catch { exit 1 }")
+    result = subprocess.run(['powershell', '-NoProfile', '-Command', script],
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                            creationflags=HIDDEN, timeout=20)
+    if result.returncode:
+        raise RuntimeError('旧 Octopus 进程仍占用运行环境，请关闭该实例后重试。')
+
 def run_install(args, cwd, env, job):
     # Never pass model credentials to package install scripts.
     clean = {k:v for k,v in env.items() if not any(s in k.upper() for s in ('KEY', 'TOKEN', 'SECRET', 'PASSWORD'))}
@@ -342,11 +357,26 @@ def launch(agent_id, job):
             repair_octopus_package(pkg)
             python = pkg / '.web-venv' / ('Scripts/python.exe' if os.name == 'nt' else 'bin/python')
             marker = pkg / '.web-dependencies-ready'
-            if not python.exists() or not marker.exists() or not (pkg/'.web-venv/pyvenv.cfg').exists():
+            if not python.exists() or not (pkg/'.web-venv/pyvenv.cfg').exists():
                 if job.get('auto_recovery'):
                     raise RuntimeError('自动恢复发现 Python 运行环境缺失，请手动重新部署。')
                 stage(job, 'installing', '正在准备 Python 环境并安装智能体依赖…')
+                if python.exists():
+                    stop_octopus_using_venv(python)
                 run_install([sys.executable, '-m', 'venv', str(pkg/'.web-venv')], pkg, env, job)
+            if not marker.exists():
+                if job.get('auto_recovery'):
+                    raise RuntimeError('自动恢复发现 Python 依赖未安装完成，请手动重新部署。')
+                stage(job, 'installing', '正在安装智能体依赖…')
+                # An interrupted install can leave a usable venv without pip or
+                # the marker. Do not recreate it in place: on Windows a former
+                # instance may still hold Scripts/python.exe open.
+                stop_octopus_using_venv(python)
+                pip_probe = subprocess.run([str(python), '-m', 'pip', '--version'], cwd=pkg,
+                                           env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                           creationflags=HIDDEN, timeout=30)
+                if pip_probe.returncode:
+                    run_install([str(python), '-m', 'ensurepip', '--upgrade'], pkg, env, job)
                 run_install([str(python), '-m', 'pip', 'install', '-e', str(pkg)], pkg, env, job)
                 marker.touch()
             env.update(PYTHONPATH=str(pkg), DOTENV_PATH=str(pkg/'.env'), OCTOPUS_ALLOWED_AGENTS_PATH=str(path/'active_agents.json'),

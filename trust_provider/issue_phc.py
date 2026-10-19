@@ -29,6 +29,7 @@ from crypto_lib import (
     schnorr_sign,
     schnorr_verify,
     compute_af,
+    compute_af_formal,
     kdf_s1,
     sym_encrypt,
     sym_decrypt,
@@ -122,6 +123,13 @@ class PHCModel(BaseModel):
     phc: Dict[str, Any]
 
 
+class UpdatedPHCRequest(BaseModel):
+    hid: str
+    candidate_phc: Dict[str, Any]
+    pa: Dict[str, Any]
+    r_bind2: int | str
+
+
 class TraceRequest(BaseModel):
     rf_ciphertext: str
 
@@ -208,6 +216,65 @@ def get_public_keys() -> Dict[str, Any]:
         "dl_params": {"p": str(DL_P), "g": str(5)},
         "paillier_pub": {"n": str(TP_PAILLIER.public.get("n")), "g": str(TP_PAILLIER.public.get("g"))},
     }
+
+
+@router.post("/tp/reissue_updated_phc")
+def reissue_updated_phc(payload: UpdatedPHCRequest) -> Dict[str, Any]:
+    """Re-sign an AP configuration change against an already approved identity."""
+    hid = str(payload.hid).lower()
+    if len(hid) != 64 or any(char not in "0123456789abcdef" for char in hid):
+        raise HTTPException(status_code=400, detail="invalid_hid")
+    record = _tpdb_get(hid)
+    if not record or not record.get("request_id"):
+        raise HTTPException(status_code=404, detail="approved_identity_not_found")
+    application = _tpapp_get(record["request_id"])
+    if not application or application.get("status") != "issued":
+        raise HTTPException(status_code=403, detail="identity_not_approved")
+    previous = record.get("phc") or {}
+    candidate = payload.candidate_phc
+    pa = payload.pa
+    if not verify_phc(previous) or previous.get("PROOF", {}).get("needs_tp_resign"):
+        raise HTTPException(status_code=409, detail="stored_credential_invalid")
+    if not previous.get("id") or previous.get("id") != candidate.get("id"):
+        raise HTTPException(status_code=400, detail="identity_mismatch")
+    if str((previous.get("TPA") or {}).get("TPid")) != str(TP_DL_PK) or str((previous.get("APA") or {}).get("APid")) != str(AP_PK):
+        raise HTTPException(status_code=409, detail="issuer_key_changed")
+    if candidate.get("SCID") != previous.get("SCID") or candidate.get("DID") != previous.get("DID"):
+        raise HTTPException(status_code=400, detail="identity_mismatch")
+    apm = pa.get("APM") or {}
+    apa = pa.get("APA") or {}
+    if apm != ((candidate.get("ASO") or {}).get("APM") or {}) or apa != (candidate.get("APA") or {}):
+        raise HTTPException(status_code=400, detail="pa_mismatch")
+    if str(apa.get("APid")) != str(AP_PK):
+        raise HTTPException(status_code=400, detail="ap_key_mismatch")
+    try:
+        signature = {key: int(str((apa.get("APproof") or {})[key])) for key in ("r", "e", "s")}
+        proof_valid = schnorr_verify(AP_PK, canonical_json({"APM": apm, "APid": str(AP_PK)}).encode(), signature)
+        cmi = int(str(apm["CMI"]))
+        rf = int(str((previous.get("SCID") or {})["RF"]))
+        r_bind = int(str(payload.r_bind2))
+    except (ValueError, KeyError, TypeError):
+        raise HTTPException(status_code=400, detail="invalid_ap_update")
+    if not proof_valid:
+        raise HTTPException(status_code=400, detail="invalid_ap_signature")
+    af = str(compute_af_formal(hid, AP_PK, TP_DL_PK, cmi, rf, r_bind))
+    if str(((candidate.get("ASO") or {}).get("TPM") or {}).get("AF")) != af:
+        raise HTTPException(status_code=400, detail="af_mismatch")
+    tpm = dict((previous.get("ASO") or {}).get("TPM") or {})
+    tpm.update({"AF": af, "Time": datetime.utcnow().isoformat() + "Z"})
+    tpid = str(TP_DL_PK)
+    tp_signature = schnorr_sign(TP_DL_SK, canonical_json({"TPM": tpm, "TPid": tpid}).encode())
+    tpa = {"TPid": tpid, "TPproof": {key: str(tp_signature[key]) for key in ("r", "e", "s")}}
+    phc = build_phc({"TPM": tpm, "APM": apm}, tpa, apa, TP_DL_SK, TP_DL_PK, AP_PK)
+    for key in ("id", "issued", "SCID", "DID", "CID", "CID_enc", "CRF"):
+        if key in previous:
+            phc[key] = previous[key]
+    phc["updated"] = datetime.utcnow().isoformat() + "Z"
+    if not verify_phc(phc):
+        raise HTTPException(status_code=500, detail="updated_credential_verification_failed")
+    record["phc"] = phc
+    _tpdb_put(hid, record)
+    return {"success": True, "phc": phc}
 
 
 @router.post("/tp/issue_phc_secure")

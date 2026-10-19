@@ -259,9 +259,9 @@ def dir_code_cmi_hid(root_dir: str, hid: str) -> int:
             hid_use = sha256_hex(str(hid))
         files: list[tuple[str, str]] = []
         for base, dirs, fnames in os.walk(root_dir):
-            dirs[:] = [d for d in dirs if d not in {".venv", "__pycache__", "logs"}]
+            dirs[:] = [d for d in dirs if d not in {".venv", ".web-venv", "venv", "__pycache__", "logs", ".git", ".pytest_cache"} and not d.endswith('.egg-info')]
             for fn in fnames:
-                if fn.endswith(('.pyc', '.pyo', '.so', '.dll')):
+                if fn.endswith(('.pyc', '.pyo', '.so', '.dll', '.log')) or fn == '.env' or fn.startswith('.env.') or fn == '.web-dependencies-ready':
                     continue
                 full = os.path.join(base, fn)
                 try:

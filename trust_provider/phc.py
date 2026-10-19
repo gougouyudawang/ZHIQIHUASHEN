@@ -51,12 +51,10 @@ def build_phc(
     }
 
     # Build TPCH/APCH using DL-based chameleon hash
-    tpm_tpa = {"TPM": aso.get("TPM", {}), "TPA": tpa}
-    apm_apa = {"APM": aso.get("APM", {}), "APA": apa}
     r_tp = secrets.randbelow(DL_Q - 1) + 1
     r_ap = secrets.randbelow(DL_Q - 1) + 1
-    tpch = str(ch_compute(tp_pk, tpm_tpa, {}, r_tp))
-    apch = str(ch_compute(ap_pk, apm_apa, {}, r_ap))
+    tpch = str(ch_compute(tp_pk, aso.get("TPM", {}), tpa, r_tp))
+    apch = str(ch_compute(ap_pk, aso.get("APM", {}), apa, r_ap))
 
     # CHproof: Schnorr over canonical({TPCH,APCH}) with TP secret
     ch_concat = canonical_json({"TPCH": tpch, "APCH": apch}).encode()
