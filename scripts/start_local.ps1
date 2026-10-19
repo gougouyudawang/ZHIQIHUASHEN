@@ -138,7 +138,7 @@ try {
     $python = Ensure-Environment
     $services = @(
         @{ Name = 'TP'; Module = 'app.tp_app:app'; Port = (8111 + $PortOffset); Login = '/tp/login'; Page = '/tp'; Marker = '身份审核登录' },
-        @{ Name = 'AP'; Module = 'app.ap_app:app'; Port = (8112 + $PortOffset); Login = '/ap/login'; Page = '/ap'; Marker = '智能体提供方控制台' },
+        @{ Name = 'AP'; Module = 'app.ap_app:app'; Port = (8112 + $PortOffset); Login = '/ap/login'; Page = '/ap'; Marker = 'Agent Provider Console' },
         @{ Name = 'User'; Module = 'app.experience_app:app'; Port = (8110 + $PortOffset); Login = '/user/login'; Page = '/user'; Marker = '用户控制台' }
     )
     foreach ($item in $services) {
