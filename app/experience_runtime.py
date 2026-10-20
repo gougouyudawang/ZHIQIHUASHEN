@@ -1,7 +1,9 @@
 """Local, authenticated orchestration; never execute a client-supplied command."""
 from pathlib import Path
 from urllib.parse import urlsplit, quote
+import filecmp
 import json
+import logging
 import os
 import re
 import shutil
@@ -21,6 +23,14 @@ LOCK = threading.RLock()
 JOBS = {}
 STOPPING = threading.Event()
 HIDDEN = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
+logger=logging.getLogger(__name__)
+
+def record_agent_lifecycle(agent_id,kind):
+    try:
+        from app import group_anp
+        group_anp.record_activity(agent_id,kind)
+    except Exception:
+        logger.exception('Failed to record agent lifecycle event for %s',agent_id)
 
 def guard(request: Request, response: Response):
     if not auth.current_session(request, auth.COOKIE_USER, 'user'):
@@ -233,6 +243,17 @@ def repair_octopus_package(pkg):
         else:shutil.copy2(original,target)
         restored.append(name)
     if not (pkg/'octopus/octopus.py').is_file():raise RuntimeError('Octopus 运行包不完整，缺少 octopus/octopus.py')
+    managed_files=('web/index.html','web/script.js','octopus/api/chat_router.py','octopus/api/auth_middleware.py')
+    for name in managed_files:
+        original=source/name
+        if not original.is_file():
+            continue
+        target=pkg/name
+        if not target.resolve().is_relative_to(pkg.resolve()):
+            raise RuntimeError('运行文件路径无效')
+        target.parent.mkdir(parents=True,exist_ok=True)
+        if not target.is_file() or not filecmp.cmp(original,target,shallow=False):
+            shutil.copy2(original,target)
     if any(name in restored for name in ('pyproject.toml','octopus')):(pkg/'.web-dependencies-ready').unlink(missing_ok=True)
     return restored
 
@@ -401,6 +422,7 @@ def launch(agent_id, job):
                     response = client.get(f'http://127.0.0.1:{port}{probe}')
                     ready = response.status_code==200 and (pkg.name!='openclaw_package' or response.json().get('ready') is True)
                     if ready and process.poll() is None:
+                        record_agent_lifecycle(agent_id,'agent_started')
                         with LOCK:
                             job.update(stage='ready', message='智能体页面已就绪，后台健康巡检已启用。模型调用结果以实际回复为准。', url=url,
                                        probe_url=f'http://127.0.0.1:{port}{probe}',probe_json=pkg.name=='openclaw_package',
@@ -422,8 +444,10 @@ def start(agent_id: str):
         if JOBS.get(agent_id, {}).get('stage') not in {'checking','installing','starting','recovering','ready'}:
             previous=JOBS.get(agent_id,{})
             previous['desired_running']=False
+            was_running=running(previous)
             kill(previous.get('process'))
-            job = {'stage':'checking', 'desired_running':True,'restarts':0, 'message':'正在检查实例和模型配置…'}
+            if was_running:record_agent_lifecycle(agent_id,'agent_stopped')
+            job = {'agent_id':agent_id,'stage':'checking', 'desired_running':True,'restarts':0, 'message':'正在检查实例和模型配置…'}
             JOBS[agent_id] = job
             threading.Thread(target=launch, args=(agent_id, job), daemon=True).start()
     return snapshot(agent_id)
@@ -436,8 +460,10 @@ def stop(agent_id: str):
         if job.get('stage') in {'checking', 'installing', 'starting'}:
             raise HTTPException(409, '部署仍在进行，请等待完成')
         job['desired_running']=False
+        was_running=running(job)
         kill(job.get('process'))
         job.update(stage='idle', message='实例已停止，可修改模型配置或重新启动。', url=None)
+    if was_running:record_agent_lifecycle(agent_id,'agent_stopped')
     return snapshot(agent_id)
 
 def shutdown():
@@ -445,6 +471,8 @@ def shutdown():
     with LOCK:
         for job in JOBS.values():
             kill(job.get('installer'))
+            was_running=running(job)
             kill(job.get('process'))
+            if was_running:record_agent_lifecycle(job.get('agent_id',''))
     from app import group_anp
     group_anp.shutdown()

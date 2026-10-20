@@ -47,6 +47,7 @@ class OctopusChat {
         this.elements.targetHost?.addEventListener('input',()=>this.refreshAnpFlow());
         this.elements.modeRadios.forEach(r=>r.addEventListener('change',()=>this.refreshAnpFlow()));
         this.loadAnpPeers();
+        this.startAnpConversationSync();
         document.getElementById('refreshAnpPeers')?.addEventListener('click',()=>this.loadAnpPeers());
         this.elements.modeRadios.forEach(r=>r.addEventListener('change',()=>{if(r.checked&&r.value==='anp')this.loadAnpPeers();}));
 
@@ -83,6 +84,45 @@ class OctopusChat {
             status.textContent=data.managed?'可填写目标主机或选择同组地址。网关由系统管理；发送前自动完成身份认证。':data.message||'填写目标主机与可选网关地址，使用 ANP 通信。';
         }catch(e){status.textContent=e.name==='AbortError'?'地址提示加载超时，仍可手动填写目标主机。':e.message;}
         finally{clearTimeout(timeout);}
+    }
+
+    startAnpConversationSync() {
+        const sync = async () => {
+            try {
+                const response = await fetch('/v1/chat/anp/conversations');
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                const data = await response.json();
+                if (!data.managed) return;
+                for (const conversation of data.conversations || []) {
+                    const incoming = conversation.direction === 'received';
+                    const peer = conversation.peer_name || conversation.peer_id;
+                    const requestId = `${conversation.message_id}:request`;
+                    const responseId = `${conversation.message_id}:response`;
+                    if (!this.findAnpMessage(requestId)) {
+                        this.addMessage(conversation.request, 'user', 'normal', null,
+                            incoming ? `ANP 来自 ${peer}` : `ANP 发往 ${peer}`, requestId);
+                    }
+                    const reply = conversation.response ||
+                        (conversation.status === 'failed' ? '智能体未能完成回复，请稍后重试。' : '正在等待智能体回复…');
+                    const existing = this.findAnpMessage(responseId);
+                    if (existing) {
+                        existing.querySelector('.message-content').textContent = reply;
+                    } else {
+                        this.addMessage(reply, 'assistant', conversation.status === 'failed' ? 'error' : 'normal',
+                            null, incoming ? `${peer} 的智能体回复` : `来自 ${peer} 的回复`, responseId);
+                    }
+                }
+            } catch (error) {
+                console.warn('ANP 会话同步暂不可用：', error);
+            }
+        };
+        sync();
+        this.anpConversationTimer = setInterval(sync, 2000);
+    }
+
+    findAnpMessage(id) {
+        return Array.from(this.elements.chatMessages.querySelectorAll('[data-anp-message-id]'))
+            .find(message => message.dataset.anpMessageId === id);
     }
 
     bindEvents() {
@@ -421,8 +461,10 @@ class OctopusChat {
         // Add user message to chat (attach selected image if any)
         const mode=this.getMode();
         const anpTarget=(this.elements.targetHost?.value||'').trim();
+        const anpConversationId=mode==='anp'?crypto.randomUUID():null;
         const routeLabel=mode==='anp'?`ANP 发往 ${anpTarget||'尚未选择目标'}`:null;
-        this.addMessage(messageText, 'user', 'normal', imageFile ? (this.currentImagePreviewUrl || URL.createObjectURL(imageFile)) : null,routeLabel);
+        this.addMessage(messageText, 'user', 'normal', imageFile ? (this.currentImagePreviewUrl || URL.createObjectURL(imageFile)) : null,routeLabel,
+            anpConversationId?`${anpConversationId}:request`:null);
 
         // Clear input
         this.elements.messageInput.value = '';
@@ -447,6 +489,7 @@ class OctopusChat {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         message: messageText,
+                        request_id: anpConversationId,
                         target_host: targetHost,
                         gateway_url: gatewayUrl || undefined,
                         origin_host: window.location.host
@@ -493,7 +536,10 @@ class OctopusChat {
                         respText = (ocr ? `识别文字：\n${ocr}\n\n` : '') + (ans ? `答案：\n${ans}` : '');
                     }
                 } catch (_) {}
-                this.addMessage(respText, 'assistant', 'normal', imageFile ? (this.currentImagePreviewUrl || null) : null,responseLabel);
+                const responseId=anpConversationId?`${anpConversationId}:response`:null;
+                const pendingReply=responseId?this.findAnpMessage(responseId):null;
+                if(pendingReply)pendingReply.querySelector('.message-content').textContent=respText;
+                else this.addMessage(respText, 'assistant', 'normal', imageFile ? (this.currentImagePreviewUrl || null) : null,responseLabel,responseId);
                 this.updateStatus('Ready', 'success');
                 if (this.elements.imageInput) this.elements.imageInput.value = '';
                 this.clearImagePreview();
@@ -527,9 +573,10 @@ class OctopusChat {
         }
     }
 
-    addMessage(content, sender, type = 'normal', imageUrl = null, sourceLabel = null) {
+    addMessage(content, sender, type = 'normal', imageUrl = null, sourceLabel = null, anpMessageId = null) {
         const messageDiv = document.createElement('div');
         messageDiv.className = `message ${sender}-message`;
+        if (anpMessageId) messageDiv.dataset.anpMessageId = anpMessageId;
 
         const avatarDiv = document.createElement('div');
         avatarDiv.className = 'message-avatar';
@@ -590,6 +637,7 @@ class OctopusChat {
 
         // Scroll to bottom
         this.scrollToBottom();
+        return messageDiv;
     }
 
     formatMessageContent(content) {

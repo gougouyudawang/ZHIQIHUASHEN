@@ -1,4 +1,4 @@
-param(
+﻿param(
     [ValidateSet('all', 'user', 'tp', 'ap')]
     [string]$Service = 'all',
     [switch]$NoBrowser,
@@ -56,6 +56,12 @@ function Ensure-Environment {
         & $candidate.File @($candidate.Args) -m venv $venv
         if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $venvPython)) { throw '创建 Python 虚拟环境失败。' }
     }
+    & $venvPython -m pip --version 2>$null | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host '当前 Python 环境缺少 pip，正在尝试通过 ensurepip 修复…'
+        & $venvPython -m ensurepip --upgrade | Out-Host
+        if ($LASTEXITCODE -ne 0) { throw '虚拟环境缺少 pip，且 ensurepip 修复失败。请重新创建 Python 虚拟环境后再启动。' }
+    }
     $hash = (Get-FileHash -LiteralPath $requirements -Algorithm SHA256).Hash
     $marker = Join-Path $venv '.requirements-local.sha256'
     $installed = (Test-Path -LiteralPath $marker) -and ((Get-Content -LiteralPath $marker -Raw).Trim() -eq $hash)
@@ -68,6 +74,25 @@ function Ensure-Environment {
         & $venvPython -m pip install --disable-pip-version-check -r $requirements | Out-Host
         if ($LASTEXITCODE -ne 0) { throw '依赖安装失败。请检查网络，或手动运行 .venv312\Scripts\python.exe -m pip install -r requirements-local.txt。' }
         Set-Content -LiteralPath $marker -Value $hash -Encoding ASCII
+    }
+    $anpRequirements = Join-Path $root 'requirements-anp.txt'
+    $anpSource = Join-Path $root 'anp-proxy'
+    if ((Test-Path -LiteralPath $anpRequirements) -and (Test-Path -LiteralPath $anpSource -PathType Container)) {
+        $anpHash = (Get-FileHash -LiteralPath $anpRequirements -Algorithm SHA256).Hash
+        $anpMarker = Join-Path $venv '.requirements-anp.sha256'
+        $anpInstalled = (Test-Path -LiteralPath $anpMarker) -and ((Get-Content -LiteralPath $anpMarker -Raw).Trim() -eq $anpHash)
+        if ($anpInstalled) {
+            & $venvPython -c 'import anp_proxy' 2>$null | Out-Null
+            $anpInstalled = ($LASTEXITCODE -eq 0)
+        }
+        if (-not $anpInstalled) {
+            Write-Host '正在安装本地 Octopus 组通信所需的 ANP 依赖…'
+            & $venvPython -m pip install --disable-pip-version-check -r $anpRequirements | Out-Host
+            if ($LASTEXITCODE -ne 0) { throw 'ANP 依赖安装失败。请确认项目包含 anp-proxy 目录并检查网络。' }
+            Set-Content -LiteralPath $anpMarker -Value $anpHash -Encoding ASCII
+        }
+    } elseif (Test-Path -LiteralPath $anpRequirements) {
+        Write-Warning '未找到 anp-proxy 源码目录；网页仍可启动，但 Octopus 组内 ANP 通信需要该目录和 requirements-anp.txt 中的依赖。'
     }
     return $venvPython
 }
@@ -113,7 +138,7 @@ try {
     $python = Ensure-Environment
     $services = @(
         @{ Name = 'TP'; Module = 'app.tp_app:app'; Port = (8111 + $PortOffset); Login = '/tp/login'; Page = '/tp'; Marker = '身份审核登录' },
-        @{ Name = 'AP'; Module = 'app.ap_app:app'; Port = (8112 + $PortOffset); Login = '/ap/login'; Page = '/ap'; Marker = '智能体提供方控制台' },
+        @{ Name = 'AP'; Module = 'app.ap_app:app'; Port = (8112 + $PortOffset); Login = '/ap/login'; Page = '/ap'; Marker = 'Agent Provider Console' },
         @{ Name = 'User'; Module = 'app.experience_app:app'; Port = (8110 + $PortOffset); Login = '/user/login'; Page = '/user'; Marker = '智契化身' }
     )
     foreach ($item in $services) {

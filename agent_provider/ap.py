@@ -6,6 +6,9 @@ import json
 import logging
 import time
 import os
+import threading
+import tempfile
+from pathlib import Path
 from agent_provider.openclaw.openclaw_package import (
     build_openclaw_agent_files,
     extract_llm_public_config,
@@ -688,6 +691,80 @@ def ap_status() -> Dict[str, Any]:
         "supported_agent_types": ["octopus", "openclaw"],
     }
 
+# Capability state changes are only available through the authenticated AP console.
+_CAP_STATE_FILE = Path(__file__).resolve().parents[1] / "local_store" / "ap_capability_states.json"
+_CAP_STATE_LOCK = threading.RLock()
+
+
+class CapabilityStatePayload(BaseModel):
+    agent_type: str
+    group_index: int
+    state: str
+
+
+def _load_cap_states() -> Dict[str, str]:
+    if not _CAP_STATE_FILE.is_file():
+        return {}
+    try:
+        states = json.loads(_CAP_STATE_FILE.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        log.exception("Failed to read AP capability states")
+        raise HTTPException(status_code=500, detail="capability_state_unavailable") from exc
+    if not isinstance(states, dict):
+        log.error("AP capability state file must contain a JSON object")
+        raise HTTPException(status_code=500, detail="capability_state_unavailable")
+    return states
+
+
+def _save_cap_states(states: Dict[str, str]) -> None:
+    temporary = None
+    try:
+        _CAP_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=_CAP_STATE_FILE.parent,
+            prefix=f".{_CAP_STATE_FILE.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as state_file:
+            json.dump(states, state_file, ensure_ascii=False, indent=2)
+            temporary = Path(state_file.name)
+        temporary.replace(_CAP_STATE_FILE)
+    except OSError as exc:
+        log.exception("Failed to persist AP capability states")
+        raise HTTPException(status_code=500, detail="capability_state_unavailable") from exc
+    finally:
+        if temporary is not None:
+            try:
+                temporary.unlink(missing_ok=True)
+            except OSError:
+                log.warning("Unable to clean up temporary AP capability state file", exc_info=True)
+
+
+@router.post("/ap/capabilities/state")
+def set_capability_state(payload: CapabilityStatePayload) -> Dict[str, Any]:
+    if payload.state not in ("active", "maintenance"):
+        raise HTTPException(status_code=400, detail="invalid_state")
+    if payload.agent_type not in ("octopus", "openclaw"):
+        raise HTTPException(status_code=400, detail="invalid_agent_type")
+    groups = _build_cmm_matrix("capability_state", {}, payload.agent_type)
+    if payload.group_index < 0 or payload.group_index >= len(groups):
+        raise HTTPException(status_code=400, detail="invalid_group_index")
+
+    with _CAP_STATE_LOCK:
+        states = _load_cap_states()
+        states[f"{payload.agent_type}:{payload.group_index}"] = payload.state
+        _save_cap_states(states)
+
+    return {
+        "success": True,
+        "agent_type": payload.agent_type,
+        "group_index": payload.group_index,
+        "state": payload.state,
+    }
+
+
 @router.get("/ap/capabilities")
 def ap_capabilities(agent_type: str = "octopus") -> Dict[str, Any]:
     agent_type = str(agent_type or "octopus").strip().lower()
@@ -700,11 +777,27 @@ def ap_capabilities(agent_type: str = "octopus") -> Dict[str, Any]:
         phc={},
         agent_type=agent_type,
     )
+    with _CAP_STATE_LOCK:
+        states_map = _load_cap_states()
+    states = []
+    for key, value in states_map.items():
+        try:
+            state_agent_type, group_index = key.split(":", 1)
+            parsed_group_index = int(group_index)
+        except (AttributeError, ValueError):
+            continue
+        if (
+            state_agent_type == agent_type
+            and 0 <= parsed_group_index < len(cmm)
+            and value in ("active", "maintenance")
+        ):
+            states.append({"group_index": parsed_group_index, "state": value})
 
     return {
         "success": True,
         "agent_type": agent_type,
         "cmm": cmm,
+        "states": states,
     }
 
 @router.get("/ap/db")

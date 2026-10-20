@@ -83,7 +83,7 @@ class RuntimeTests(unittest.TestCase):
         process = MagicMock()
         process.poll.return_value = None
         job = {}
-        with patch.object(rt, 'tools', return_value=('node',Path('npm-cli.js'))), patch.object(rt.shutil,'which',return_value='git'), patch.object(rt.subprocess,'Popen',return_value=process) as spawn, patch.object(rt.httpx,'Client') as client:
+        with patch.object(rt, 'record_agent_lifecycle'), patch.object(rt, 'tools', return_value=('node',Path('npm-cli.js'))), patch.object(rt.shutil,'which',return_value='git'), patch.object(rt.subprocess,'Popen',return_value=process) as spawn, patch.object(rt.httpx,'Client') as client:
             client.return_value.__enter__.return_value.get.return_value.status_code=200
             client.return_value.__enter__.return_value.get.return_value.json.return_value={'ready':True}
             client.return_value.__enter__.return_value.get.return_value.json.side_effect=[{'ready':False},{'ready':True}]
