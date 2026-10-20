@@ -2,13 +2,13 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8" />
-  <title>信锚 Agent-Anchor · AP 管理控制台</title>
+  <title>AP 管理控制台</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <!-- ?v= 由服务端替换为静态目录 mtime 版本号：资源一改 URL 就变，杜绝旧缓存 -->
   <link rel="stylesheet" href="/ap/static/ap_console.css?v=__ASSET_V__" />
 </head>
 <body>
-  <!-- 全宽吸顶白条：与 User / TP 三端同构（徽标 + 系统名 | 用户胶囊 + 主操作） -->
+
+  <!-- ============ 吸顶白条 ============ -->
   <header class="app-header">
     <div class="header-inner">
       <div class="brand">
@@ -22,12 +22,11 @@
           </svg>
         </div>
         <div class="brand-text">
-          <h1>AP 管理控制台</h1>
-          <p>Agent Provider · PA 签发 · CMM 能力矩阵 · 恢复记录</p>
+          <h1>Agent Provider 控制台</h1>
+          <p>智能体能力 · 签发记录 · 运营管理</p>
         </div>
       </div>
 
-      <!-- 当前操作者 + 退出 + 刷新。退出图标内嵌在用户胶囊里，三端同款 -->
       <div class="header-actions">
         <div class="user-chip">
           <span class="user-chip-avatar" aria-hidden="true">A</span>
@@ -50,153 +49,209 @@
   </header>
 
   <div class="app-shell">
-    <section class="stats-grid">
-      <div class="stat-card">
-        <div class="stat-label">服务状态</div>
-        <div id="serviceStatus" class="stat-value">检测中</div>
-        <div class="stat-desc">AP 服务 /v1/ap/status</div>
+
+    <!-- ============ 概览区（4 张卡，带图标与强调） ============ -->
+    <section class="stats-grid" aria-label="运营概览">
+
+      <div class="stat-card tone-green">
+        <div class="stat-head">
+          <span class="stat-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+                 stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="3" width="7" height="7" rx="1.6"/>
+              <rect x="14" y="3" width="7" height="7" rx="1.6"/>
+              <rect x="3" y="14" width="7" height="7" rx="1.6"/>
+              <rect x="14" y="14" width="7" height="7" rx="1.6"/>
+            </svg>
+          </span>
+          <span class="stat-label">可提供智能体类型</span>
+        </div>
+        <div class="stat-value" id="agentTypeCount">-</div>
+        <div class="stat-foot">Octopus · OpenClaw</div>
       </div>
 
-      <div class="stat-card">
-        <div class="stat-label">AP 本地记录数</div>
-        <div id="recordCount" class="stat-value">-</div>
-        <div class="stat-desc">local_store/ap_db</div>
+      <div class="stat-card tone-blue">
+        <div class="stat-head">
+          <span class="stat-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+                 stroke-linecap="round" stroke-linejoin="round">
+              <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/>
+              <polyline points="14 3 14 8 19 8"/>
+              <line x1="9" y1="13" x2="15" y2="13"/>
+              <line x1="9" y1="17" x2="13" y2="17"/>
+            </svg>
+          </span>
+          <span class="stat-label">累计签发</span>
+        </div>
+        <div class="stat-value" id="recordCount">-</div>
+        <div class="stat-foot">历史全部 PA 记录</div>
       </div>
 
-      <div class="stat-card">
-        <div class="stat-label">支持 Agent 类型</div>
-        <div id="agentTypes" class="stat-value small">-</div>
-        <div class="stat-desc">Octopus / OpenClaw</div>
+      <div class="stat-card tone-amber">
+        <div class="stat-head">
+          <span class="stat-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+                 stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/>
+              <polyline points="17 6 23 6 23 12"/>
+            </svg>
+          </span>
+          <span class="stat-label">本周新增</span>
+        </div>
+        <div class="stat-value" id="weekCount">-</div>
+        <div class="stat-foot">周一至今</div>
       </div>
+
+      <div class="stat-card tone-violet">
+        <div class="stat-head">
+          <span class="stat-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+                 stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="9"/>
+              <polyline points="12 7 12 12 15 14"/>
+            </svg>
+          </span>
+          <span class="stat-label">今日签发</span>
+        </div>
+        <div class="stat-value" id="todayCount">-</div>
+        <div class="stat-foot">今日 0 点至当前</div>
+      </div>
+
     </section>
 
-    <section class="panel">
-      <div class="panel-header">
-        <div>
-          <h2>AP 公钥</h2>
-          <p>用户端会使用该公钥加密发送给 AP 的请求。</p>
-        </div>
-        <button id="copyPkBtn" class="ghost-btn">复制公钥</button>
-      </div>
+    <!-- ============ 主导航 Tab（3 个） ============ -->
+    <nav class="main-tabs" role="tablist" aria-label="主导航">
+      <button class="tab-btn active" role="tab" data-main-tab="catalog">能力服务</button>
+      <button class="tab-btn" role="tab" data-main-tab="records">签发记录</button>
+      <button class="tab-btn" role="tab" data-main-tab="settings">系统设置</button>
+    </nav>
 
-      <pre id="publicKeyBox">暂无数据</pre>
-    </section>
-
-    <section class="panel">
-      <div class="panel-header">
-        <div>
-          <h2>能力矩阵 CMM</h2>
-          <p>AP 可提供的 PA 配置能力。用户端加载配置时，本质上就是从 AP 获取这份矩阵。</p>
-        </div>
-
-        <div class="tabs">
-          <button class="tab-btn active" data-agent-type="octopus">Octopus</button>
-          <button class="tab-btn" data-agent-type="openclaw">OpenClaw</button>
-        </div>
-      </div>
-
-      <div id="capabilityGrid" class="capability-grid"></div>
-    </section>
-
-    <section class="panel">
-      <div class="panel-header">
-        <div>
-          <h2>AP 签发 / 恢复记录</h2>
-          <p>用户提交 CMC 后，AP 会把可恢复信息保存到 local_store/ap_db。</p>
-        </div>
-
-        <button id="refreshDbBtn" class="ghost-btn">刷新记录</button>
-      </div>
-
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>HID</th>
-              <th>Agent 类型</th>
-              <th>CMI</th>
-              <th>CMC 项数</th>
-              <th>时间</th>
-              <th>操作</th>
-            </tr>
-          </thead>
-
-          <tbody id="dbTableBody">
-            <tr>
-              <td colspan="6">暂无数据</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </section>
-
-    <section class="panel" id="detailPanel" style="display:none;">
-      <div class="panel-header">
-        <div>
-          <h2>记录详情</h2>
-          <p>AP 本地保存的 CMC / CMI / r_bind2 等恢复数据。</p>
-        </div>
-
-        <button id="closeDetailBtn" class="ghost-btn">关闭</button>
-      </div>
-
-      <pre id="detailBox"></pre>
-    </section>
-
-    <section class="panel two-col">
-      <div class="col-protocol">
+    <!-- ============ Tab 1：能力服务 ============ -->
+    <section class="tab-panel" data-tab-panel="catalog">
+      <div class="panel">
         <div class="panel-header">
           <div>
-            <h2>协议对象说明</h2>
-            <p>PA 签发链路中的核心术语。</p>
+            <h2>能力服务</h2>
+            <p>AP 对外提供的能力清单。管理员可将某一分组切换为“已启用 / 维护中”。</p>
+          </div>
+          <div class="sub-tabs" role="tablist">
+            <button class="tab-btn active" data-agent-type="octopus">Octopus</button>
+            <button class="tab-btn" data-agent-type="openclaw">OpenClaw</button>
+          </div>
+        </div>
+        <div id="capabilityGrid" class="capability-grid"></div>
+      </div>
+    </section>
+
+    <!-- ============ Tab 2：签发记录 ============ -->
+    <section class="tab-panel" data-tab-panel="records" hidden>
+      <div class="panel">
+        <div class="panel-header">
+          <div>
+            <h2>签发记录</h2>
+            <p>查询本 AP 签发过的智能体凭证。支持按时间、类型、状态与关键词筛选。</p>
+          </div>
+          <button id="refreshDbBtn" class="ghost-btn">刷新记录</button>
+        </div>
+
+        <!-- 筛选栏 -->
+        <div class="filters">
+          <input id="filterKeyword" class="filter-input" type="text"
+                 placeholder="PA ID / 用户标识 / 能力关键词" />
+          <select id="filterType" class="filter-input">
+            <option value="">全部类型</option>
+            <option value="octopus">Octopus</option>
+            <option value="openclaw">OpenClaw</option>
+          </select>
+          <select id="filterStatus" class="filter-input">
+            <option value="">全部状态</option>
+            <option value="verified">成功</option>
+            <option value="pending">待验证</option>
+            <option value="failed">失败</option>
+          </select>
+          <input id="filterFrom" class="filter-input" type="date" />
+          <span class="filter-sep">至</span>
+          <input id="filterTo" class="filter-input" type="date" />
+          <button id="filterApplyBtn" class="primary-btn">查询</button>
+          <button id="filterResetBtn" class="ghost-btn">重置</button>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>签发时间</th>
+                <th>PA ID</th>
+                <th>类型</th>
+                <th>用户标识</th>
+                <th>能力摘要</th>
+                <th>状态</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="dbTableBody">
+              <tr><td colspan="7">暂无数据</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ Tab 3：系统设置 ============ -->
+    <section class="tab-panel" data-tab-panel="settings" hidden>
+
+      <!-- 开发者信息 -->
+      <div class="panel">
+        <div class="panel-header">
+          <div>
+            <h2>开发者信息</h2>
+            <p>AP 身份标识与对外公钥。用户端会使用该公钥加密发送给 AP 的请求。</p>
           </div>
         </div>
 
-        <dl class="protocol-list">
-          <div class="protocol-item">
-            <dt>CMI</dt>
-            <dd>Agent 配置或代码度量值</dd>
-          </div>
-          <div class="protocol-item">
-            <dt>APM</dt>
-            <dd>AP 元数据，包含 CMI 和 AP 签发时间</dd>
-          </div>
-          <div class="protocol-item">
-            <dt>APA</dt>
-            <dd>AP 对 APM 的 Schnorr 签名</dd>
-          </div>
-          <div class="protocol-item">
-            <dt>PA</dt>
-            <dd>Personal Agent 证明对象，由 APM + APA 构成</dd>
-          </div>
-          <div class="protocol-item">
-            <dt>CH</dt>
-            <dd>AP 侧承诺哈希</dd>
-          </div>
-          <div class="protocol-item">
-            <dt>CCH</dt>
-            <dd>TP / AP 组合承诺哈希</dd>
-          </div>
-          <div class="protocol-item">
-            <dt>HASH_CHAIN</dt>
-            <dd>用户 CMC 选择项形成的哈希链</dd>
-          </div>
-        </dl>
+        <div class="settings-row">
+          <span class="settings-label">AP ID</span>
+          <span id="apIdValue" class="settings-value mono">—</span>
+        </div>
+
+        <div class="settings-row">
+          <span class="settings-label">AP 公钥</span>
+          <span id="apPkValue" class="settings-value mono masked">••••••••••••••••••••••••••••</span>
+          <button id="togglePkBtn" class="chip-btn" type="button">显示</button>
+          <button id="copyPkBtn" class="chip-btn" type="button">复制</button>
+        </div>
       </div>
 
-      <div class="col-debug">
+      <!-- 最近操作日志（业务化，不裸露原始数据） -->
+      <div class="panel">
         <div class="panel-header">
           <div>
-            <h2>调试输出</h2>
-            <p>最近一次接口请求 / 响应内容。</p>
+            <h2>最近操作日志</h2>
+            <p>控制台最近的关键操作记录。</p>
           </div>
           <button id="clearDebugBtn" class="ghost-btn">清空</button>
         </div>
-
-        <pre id="debugBox">暂无调试输出</pre>
+        <ul id="opLogList" class="op-log-list">
+          <li class="op-log-empty">暂无操作记录</li>
+        </ul>
       </div>
+
     </section>
+
   </div>
+
+  <!-- ============ 详情抽屉 ============ -->
+  <div class="drawer-mask" id="drawerMask"></div>
+  <aside class="drawer" id="drawer" aria-hidden="true" role="dialog" aria-modal="true">
+    <div class="drawer-header">
+      <div>
+        <p class="eyebrow" id="drawerEyebrow">详情</p>
+        <h2 id="drawerTitle">—</h2>
+      </div>
+      <button class="drawer-close" id="drawerClose" type="button" aria-label="关闭">×</button>
+    </div>
+    <div class="drawer-body" id="drawerBody"></div>
+  </aside>
 
   <script src="/ap/static/ap_console.js?v=__ASSET_V__"></script>
 </body>

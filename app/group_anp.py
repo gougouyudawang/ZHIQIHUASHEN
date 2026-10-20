@@ -20,6 +20,60 @@ router=APIRouter(prefix='/user/anp',dependencies=[Depends(rt.guard)])
 def registry_path(parent):
     return rt.ROOT/'local_store/anp_groups'/f'{parent}.json'
 
+def activity_log(parent):
+    from app.anp_mailbox import ActivityLog
+    return ActivityLog(registry_path(parent).with_suffix('.activity.sqlite3'))
+
+def record_activity(agent_id,kind,peer_id=None,conversation_id=None,status='completed'):
+    parent=group_for(agent_id)
+    return activity_log(parent).record(
+        uuid.uuid4().hex,kind,agent_id,peer_id,conversation_id,status,
+    )
+
+def agent_label(agent_id):
+    if not agent_id:return '未知智能体'
+    try:
+        manifest=json.loads((rt.agent_dir(agent_id)/'agent_manifest.json').read_text(encoding='utf-8'))
+        return str(manifest.get('name') or agent_id)
+    except (HTTPException,OSError,ValueError):
+        return agent_id
+
+def activity_events(parent):
+    events=activity_log(parent).listing()
+    recorded={
+        (event['agent_id'],event['peer_id'],event['conversation_id'],event['kind'])
+        for event in events
+    }
+    registry=registry_path(parent)
+    if registry.is_file():
+        from app.anp_mailbox import Mailbox
+        members=json.loads(registry.read_text(encoding='utf-8')).get('members',{})
+        for agent_id in members:
+            mailbox_path=rt.agent_dir(agent_id)/'anp_messages.sqlite3'
+            if not mailbox_path.is_file():
+                continue
+            for item in Mailbox(mailbox_path).activity():
+                kind=item['kind']
+                if kind=='chat_request':
+                    kind='request_sent' if item['direction']=='sent' else 'request_received'
+                elif kind=='chat_response':
+                    kind='response_received' if item['direction']=='sent' else 'response_returned'
+                event={
+                    'event_id':f"mailbox:{agent_id}:{item['event_id']}",
+                    'kind':kind,
+                    'agent_id':agent_id,
+                    'peer_id':item['peer_id'],
+                    'direction':item['direction'],
+                    'conversation_id':item.get('conversation_id'),
+                    'timestamp':item['timestamp'],
+                    'status':item['status'],
+                }
+                key=(event['agent_id'],event['peer_id'],event['conversation_id'],event['kind'])
+                if key not in recorded:
+                    events.append(event)
+                    recorded.add(key)
+    return sorted(events,key=lambda event:event['timestamp'],reverse=True)[:200]
+
 def group_for(agent_id):
     path=rt.agent_dir(agent_id)
     if not any((path/name).is_dir() for name in ('octopus_build','openclaw_package')):raise HTTPException(400,'实例缺少运行包')
@@ -92,13 +146,18 @@ class Send(BaseModel):
 
 @router.get('/{agent_id}')
 def state(agent_id:str):
-    group_for(agent_id)
-    try:return local_call(agent_id,'GET','messages')
+    parent=group_for(agent_id)
+    events=activity_events(parent)
+    for event in events:
+        event['agent_name']=agent_label(event['agent_id'])
+        event['peer_name']=agent_label(event['peer_id']) if event['peer_id'] else None
+    try:
+        data=local_call(agent_id,'GET','messages')
+        return {'success':True,'connected':data.get('connected',False),'transport':data.get('transport'),
+                'activity':events,'identity_memory':data.get('identity_memory')}
     except HTTPException as exc:
         if exc.status_code!=409:raise
-        from app.anp_mailbox import Mailbox
-        box=Mailbox(rt.agent_dir(agent_id)/'anp_messages.sqlite3')
-        return {'success':True,'connected':False,'messages':box.listing('in'),'sent':box.listing('out'),'message':exc.detail}
+        return {'success':True,'connected':False,'activity':events,'message':exc.detail}
 
 @router.post('/{agent_id}/send')
 def send(agent_id:str,body:Send):

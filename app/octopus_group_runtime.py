@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/'anp-proxy'))
 sys.path.insert(0,str(ROOT))
-from app.anp_mailbox import Mailbox
+from app.anp_mailbox import ActivityLog, Mailbox
 from app.identity_memory import Memory
 
 class MessageRequest(BaseModel):
@@ -27,37 +27,49 @@ class MessageRequest(BaseModel):
 class AuthenticatedMessage(MessageRequest):
     identity_proof:dict
 
-async def group_chat(message, target_host):
+async def group_chat(message, target_host, message_id=None):
     """Route native chat through the managed gateway, never a direct fallback."""
-    data=json.loads(Path(os.environ['OCTOPUS_GROUP_FILE']).read_text(encoding='utf-8'))
+    registry=Path(os.environ['OCTOPUS_GROUP_FILE'])
+    data=json.loads(registry.read_text(encoding='utf-8'))
     source=os.environ['OCTOPUS_INSTANCE_ID']
     targets=[key for key,value in data['members'].items()
              if target_host in (f"127.0.0.1:{value['port']}",f"localhost:{value['port']}") and key!=source]
     if len(targets)!=1:
         raise ValueError('请选择已启动的同组主/子智能体地址；目标端口请从伙伴运行页面获取。')
     target=targets[0]
-    body=MessageRequest(target_id=target,content=message,purpose='chat').model_dump()
+    body=MessageRequest(message_id=message_id or uuid.uuid4().hex,target_id=target,content=message,purpose='chat').model_dump()
+    activity=ActivityLog(registry.with_suffix('.activity.sqlite3'))
+    event_prefix=f"{source}:{body['message_id']}"
+    activity.record(f"{event_prefix}:request-sent",'request_sent',source,target,body['message_id'])
     memory=Memory(Path(os.environ['OCTOPUS_GROUP_FILE']).parents[1]/'agents'/source,source,
                   'octopus-group:'+Path(os.environ['OCTOPUS_GROUP_FILE']).stem,
                   lambda:json.loads(Path(os.environ['OCTOPUS_GROUP_FILE']).read_text(encoding='utf-8'))['members'])
-    async with httpx.AsyncClient(trust_env=False,timeout=120) as client:
-        headers={'Host':f"127.0.0.1:{data['members'][target]['port']}",
-                 'Authorization':'Bearer '+data['members'][source]['token'],'x-agent-sender':source}
-        challenge=await client.post(data['gateway_http']+'/local-anp/challenge',json=body,headers=headers)
-        if challenge.status_code!=200:raise ValueError('目标智能体认证服务不可用，请刷新列表并确认双方已重启')
-        proof=memory.answer(challenge.json(),body)
-        response=await client.post(data['gateway_http']+'/local-anp/chat',
-            json={**body,'identity_proof':proof},headers=headers)
-        response.raise_for_status()
-        result=response.json()
-        evidence=result.get('identity_evidence')
-        from app.identity_memory import digest
-        if (not evidence or evidence['event']['request']!=memory.event_request(source,body)
-                or evidence['event'].get('response_hash')!=digest(result['response'])):
-            raise ValueError('目标回复缺少有效的签名证据')
-        memory.record(evidence)
-        return {'response':result['response'],'identity_auth':result['identity_auth'],
-                'identity_events':memory.status()['events'],'peer_id':target}
+    try:
+        async with httpx.AsyncClient(trust_env=False,timeout=120) as client:
+            headers={'Host':f"127.0.0.1:{data['members'][target]['port']}",
+                     'Authorization':'Bearer '+data['members'][source]['token'],'x-agent-sender':source}
+            challenge=await client.post(data['gateway_http']+'/local-anp/challenge',json=body,headers=headers)
+            if challenge.status_code!=200:raise ValueError('目标智能体认证服务不可用，请刷新列表并确认双方已重启')
+            proof=memory.answer(challenge.json(),body)
+            response=await client.post(data['gateway_http']+'/local-anp/chat',
+                json={**body,'identity_proof':proof},headers=headers)
+            response.raise_for_status()
+            result=response.json()
+            evidence=result.get('identity_evidence')
+            from app.identity_memory import digest
+            if (not evidence or evidence['event']['request']!=memory.event_request(source,body)
+                    or evidence['event'].get('response_hash')!=digest(result['response'])):
+                raise ValueError('目标回复缺少有效的签名证据')
+            memory.record(evidence)
+            activity.record(f"{event_prefix}:response-received",'response_received',source,target,body['message_id'])
+            mailbox=Mailbox(Path(os.environ['OCTOPUS_GROUP_FILE']).parents[1]/'agents'/source/'anp_messages.sqlite3')
+            mailbox.begin_conversation(body['message_id'],'sent',target,message)
+            mailbox.finish_conversation(body['message_id'],'sent',result['response'])
+            return {'response':result['response'],'identity_auth':result['identity_auth'],
+                    'identity_events':memory.status()['events'],'peer_id':target}
+    except Exception:
+        activity.record(f"{event_prefix}:request-failed",'request_failed',source,target,body['message_id'],'failed')
+        raise
 
 def attach(app,agent_getter,registry,instance_id,chat_getter=None):
     from anp_proxy.receiver.client import ReceiverClient
@@ -124,7 +136,18 @@ def attach(app,agent_getter,registry,instance_id,chat_getter=None):
         agent=chat_getter() if chat_getter else None
         if agent is None:raise HTTPException(503,'目标智能体不支持对话或尚未就绪')
         mode=memory.authenticate(sender,body.model_dump(exclude={'identity_proof'}),body.identity_proof)
-        result=await agent.process_natural_language(request=body.content,request_id=body.message_id)
+        mailbox.begin_conversation(body.message_id,'received',sender,body.content)
+        activity_log=ActivityLog(Path(registry).with_suffix('.activity.sqlite3'))
+        event_prefix=f"{instance_id}:{body.message_id}"
+        activity_log.record(f"{event_prefix}:request-received",'request_received',instance_id,sender,body.message_id)
+        try:
+            result=await agent.process_natural_language(request=body.content,request_id=body.message_id)
+        except Exception:
+            mailbox.finish_conversation(body.message_id,'received','智能体暂时无法完成回复，请稍后重试。','failed')
+            activity_log.record(f"{event_prefix}:response-returned",'response_returned',instance_id,sender,body.message_id,'failed')
+            raise
+        mailbox.finish_conversation(body.message_id,'received',result)
+        activity_log.record(f"{event_prefix}:response-returned",'response_returned',instance_id,sender,body.message_id)
         from datetime import datetime,timezone
         evidence=memory.receipt(sender,body.model_dump(exclude={'identity_proof'}),body.identity_proof,
                                 datetime.now(timezone.utc).isoformat(),response=result)
@@ -134,7 +157,8 @@ def attach(app,agent_getter,registry,instance_id,chat_getter=None):
     async def messages(request:Request):
         authorize(request,own_token)
         return {'success':True,'connected':bool(receiver and receiver.connected),'transport':'ANP / ANPX',
-                'messages':mailbox.listing('in'),'sent':mailbox.listing('out'),'identity_memory':memory.status()}
+                'messages':mailbox.listing('in'),'sent':mailbox.listing('out'),
+                'activity':mailbox.activity(),'identity_memory':memory.status()}
 
     @app.post('/local-anp/send')
     async def send(body:MessageRequest,request:Request):

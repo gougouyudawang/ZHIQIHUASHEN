@@ -10,7 +10,7 @@ import os
 from datetime import datetime
 
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from octopus.agents.message.message_agent import MessageAgent
 from octopus.master_agent import MasterAgent
@@ -34,6 +34,7 @@ class ChatRequest(BaseModel):
 class ChatAnpRequest(BaseModel):
     message: str
     target_host: str
+    request_id: str | None = Field(default=None, max_length=80, pattern=r'^[A-Za-z0-9_-]{1,80}$')
     gateway_url: str | None = None
     origin_host: str | None = None
     timestamp: str | None = None
@@ -174,17 +175,47 @@ async def anp_peers(request: Request):
         peers=await asyncio.gather(*(inspect(key,value) for key,value in data['members'].items()))
     return {'managed':True,'peers':[p for p in peers if p],'message':'仅列出已登记的同组实例；请先在工作台启动通信双方。'}
 
+@router.get('/chat/anp/conversations')
+async def anp_conversations(request: Request):
+    """Expose this local instance's ANP chat history to its own browser UI."""
+    from pathlib import Path
+    from app.anp_mailbox import Mailbox
+    if not request.client or request.client.host not in {'127.0.0.1','::1','testclient'}:
+        raise HTTPException(403,'ANP 会话记录仅限本机访问')
+    if request.headers.get('origin') and request.headers['origin']!=str(request.base_url).rstrip('/'):
+        raise HTTPException(403,'不允许跨站访问 ANP 会话记录')
+    registry=os.environ.get('OCTOPUS_GROUP_FILE')
+    source=os.environ.get('OCTOPUS_INSTANCE_ID')
+    if not registry or not source:
+        return {'managed':False,'conversations':[]}
+    path=Path(registry)
+    data=json.loads(path.read_text(encoding='utf-8'))
+    if source not in data.get('members',{}):
+        return {'managed':False,'conversations':[]}
+    mailbox=Mailbox(path.parents[1]/'agents'/source/'anp_messages.sqlite3')
+    conversations=mailbox.conversations()
+    for item in conversations:
+        peer_id=item['peer_id']
+        manifest=path.parents[1]/'agents'/peer_id/'agent_manifest.json'
+        item['peer_name']=peer_id
+        if manifest.is_file():
+            try:
+                item['peer_name']=json.loads(manifest.read_text(encoding='utf-8')).get('name') or peer_id
+            except (OSError,ValueError):
+                pass
+    return {'managed':True,'conversations':conversations}
+
 
 @router.post("/chat/anp", response_model=ChatResponse)
 async def chat_anp(request: ChatAnpRequest):
     logger.info(f"🔵 [CHAT ANP] Target host: {request.target_host}")
-    req_id = str(uuid.uuid4())
+    req_id = request.request_id or str(uuid.uuid4())
     ts = datetime.now().isoformat()
 
     try:
         if os.environ.get('OCTOPUS_GROUP_FILE'):
             from app.octopus_group_runtime import group_chat
-            result = await group_chat(request.message, request.target_host.strip())
+            result = await group_chat(request.message, request.target_host.strip(), req_id)
             try:
                 import json as response_json
                 parsed=response_json.loads(result['response']) if isinstance(result['response'],str) else result['response']

@@ -36,7 +36,9 @@ def inspect_once(rt, clock=time.monotonic, restart=None):
             if state=='recovering':
                 if clock()<job.get('retry_at',0):continue
                 # Stop only the process tracked for this instance.
+                was_running=bool(job.get('process') and job['process'].poll() is None)
                 rt.kill(job.get('process'))
+                if was_running:rt.record_agent_lifecycle(agent_id,'agent_stopped')
                 job.update(stage='starting',url=None,auto_recovery=True,
                            message=f"正在自动恢复（第 {job['restarts']} 次）…")
                 if restart:

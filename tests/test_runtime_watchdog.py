@@ -8,7 +8,8 @@ class WatchdogTests(unittest.TestCase):
     def setUp(self):
         self.process=MagicMock();self.process.poll.return_value=None
         self.job={'stage':'ready','desired_running':True,'ever_ready':True,'process':self.process,'restarts':0}
-        self.rt=SimpleNamespace(LOCK=threading.RLock(),STOPPING=threading.Event(),JOBS={'test':self.job},kill=MagicMock())
+        self.rt=SimpleNamespace(LOCK=threading.RLock(),STOPPING=threading.Event(),JOBS={'test':self.job},
+                                 kill=MagicMock(),record_agent_lifecycle=MagicMock())
         self.restart=MagicMock()
         self.time=1000
     def tick(self,healthy):
@@ -23,6 +24,7 @@ class WatchdogTests(unittest.TestCase):
         self.time+=10;self.tick(False);self.tick(False)
         self.restart.assert_called_once_with('test',self.job)
         self.rt.kill.assert_called_once_with(self.process)
+        self.rt.record_agent_lifecycle.assert_called_once_with('test','agent_stopped')
     def test_success_clears_transient_failures(self):
         self.tick(False);self.tick(True);self.tick(False)
         self.assertEqual(self.job['health_failures'],1)
